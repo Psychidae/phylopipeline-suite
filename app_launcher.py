@@ -1,4 +1,3 @@
-# app_launcher.py
 import streamlit as st
 from modules.downloader import app_downloader
 from modules.phylo import app_phylo
