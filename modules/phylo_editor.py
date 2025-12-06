@@ -109,32 +109,28 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
     consensus_row = np.array(consensus_indices, dtype=np.int8)
 
     # --- 高さ計算 (重要) ---
-    # ユーザー要望: "この画面上に15配列くらい" -> 1行あたり25px程度
-    PIXELS_PER_ROW = 25
-    BAR_HEIGHT = 80
-    CONS_HEIGHT = 25
-    HEADER_TOTAL = BAR_HEIGHT + CONS_HEIGHT + 50 # margins
+    # ユーザー要望: "コンセンサスの配列くらいの高さ" -> 18-20px程度
+    # ズーム動作の重さを軽減するために行間を詰める
+    PIXELS_PER_ROW = 18
+    BAR_HEIGHT = 60 # 少し低くする
+    CONS_HEIGHT = 18
+    HEADER_TOTAL = BAR_HEIGHT + CONS_HEIGHT + 40 # margins
     
     main_height = n_seq * PIXELS_PER_ROW
     total_height = HEADER_TOTAL + main_height
     min_total = 400
     if total_height < min_total:
         total_height = min_total
-        # Recalculate main ratio to fill space? No, maintain pixel size priority?
-        # If we stretch, cells become tall. Better to have empty space?
-        # Plotly heatmaps stretch. To avoid stretch, we need fixed aspect ratio or correct domain.
-        # But we can't easily leave empty space in subplots without complexity.
-        # We will accept stretch if few sequences.
 
     # Ratios
     r1 = BAR_HEIGHT / total_height
     r2 = CONS_HEIGHT / total_height
-    r3 = 1.0 - (r1 + r2) - 0.02 # Buffer
+    r3 = 1.0 - (r1 + r2) - 0.01 # Buffer
 
     fig = make_subplots(
         rows=3, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.01,
+        vertical_spacing=0.005, # より隙間をなくす
         row_heights=[r1, r2, r3],
         subplot_titles=("", "", "")
     )
@@ -162,7 +158,7 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
         showscale=False,
         text=[cons_text],
         texttemplate="%{text}",
-        textfont=dict(family="monospace", color=text_color, size=14),
+        textfont=dict(family="monospace", color=text_color, size=12), # サイズ調整
         xgap=0, ygap=0,
         zsmooth=False
     ), row=2, col=1)
@@ -173,42 +169,42 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
     # Diff Mode: 背景色を変更
     text_matrix = None
     if diff_mode:
-        # コンセンサス一致箇所を '6' (Match Color) に変更
         for i in range(n_seq):
             match_mask = (matrix[i] == consensus_row)
             plot_matrix[i][match_mask] = 6 # 6番目の色(White/Grey)
     
-    # Text Matrix
-    if show_text or diff_mode:
+    # Text Matrix Calculation (Heavy Operation)
+    # テキスト表示ONまたはDiffMode(Hover用)の場合のみ計算
+    # パフォーマンス改善: テキストOFFの時は計算しない
+    if show_text: # DiffModeのHover用テキストは重すぎるのでshow_text=Trueの時のみ詳細表示とするか？
         text_matrix = np.empty(matrix.shape, dtype=object)
         for val, char in int_to_char.items():
             if val == 6: continue
             text_matrix[matrix == val] = char
         
-        # Diff Modeでの文字表示
         if diff_mode:
             for i in range(n_seq):
                 match_mask = (matrix[i] == consensus_row)
-                text_matrix[i][match_mask] = '.' # Match -> Dot
-                # Mismatch -> Original char (already set)
+                text_matrix[i][match_mask] = '.' 
 
     heatmap_kwargs = dict(
         z=plot_matrix,
         x=x_axis,
         y=ids,
-        colorscale=colorscale, # 0-6対応版
+        colorscale=colorscale,
         showscale=False,
         xgap=0 if dense_view else 1,
         ygap=0 if dense_view else 1,
         zsmooth=False,
     )
 
-    if show_text:
+    if show_text and text_matrix is not None:
         heatmap_kwargs["text"] = text_matrix
         heatmap_kwargs["texttemplate"] = "%{text}"
         heatmap_kwargs["textfont"] = dict(family="monospace", color=text_color)
     else:
-        if diff_mode: heatmap_kwargs["hovertext"] = text_matrix
+        # テキストOFF時はHover情報を軽量化
+        heatmap_kwargs["hoverinfo"] = "x+y+z"
 
     fig.add_trace(go.Heatmap(**heatmap_kwargs), row=3, col=1)
 
@@ -223,9 +219,9 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
 
     # Layout Update
     fig.update_layout(
-        title="", # タイトル削除して省スペース化
+        title="", 
         height=total_height,
-        margin=dict(l=20, r=20, t=10, b=10), # マージン詰める
+        margin=dict(l=20, r=20, t=10, b=10),
         dragmode='pan',
         yaxis3=dict(autorange="reversed") # Row 3
     )
@@ -242,7 +238,6 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
 def open_alignment_editor(initial_df, target_key="phylo_aligned_df"):
     """
     高機能アラインメントエディタ
-    target_key: 保存時に更新するst.session_stateのキー
     """
     st.caption("全体を俯瞰して、不要な配列の削除や、両端のトリミングを行えます。")
     
@@ -257,7 +252,8 @@ def open_alignment_editor(initial_df, target_key="phylo_aligned_df"):
     # UI Control Row
     r1c1, r1c2, r1c3, r1c4 = st.columns(4)
     show_consensus = r1c1.checkbox("Consensus Row", value=True)
-    show_text = r1c2.checkbox("Show Text", value=True)
+    # デフォルトOFFに変更（パフォーマンス対策）
+    show_text = r1c2.checkbox("Show Text", value=False, help="Enable text overlay (May slow down zooming)")
     diff_mode = r1c3.checkbox("Diff Mode", value=False)
     dense_view = r1c4.checkbox("Dense View", value=True, help="Remove gaps between cells")
     
