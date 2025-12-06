@@ -34,26 +34,75 @@ def alignment_to_matrix(df):
                 
     return matrix, ids
 
-def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None):
+def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=False, show_consensus=False, diff_mode=False):
     """Plotlyでヒートマップを描画"""
     if matrix is None: return None
     
-    # トリム範囲の表示用
+    # 逆マッピング
+    int_to_char = {0: '-', 1: 'A', 2: 'T', 3: 'G', 4: 'C', 5: 'N'}
+    
+    # コンセンサス計算 (単純な多数決)
+    # axis=0 (列) ごとに最頻値を求める
+    # 0(Gap)も含めて多数決をとるか、Gap無視するか？
+    # ここではGapも含めて単純多数決とする（視覚的なコンセンサスラインなので）
+    consensus_row = []
+    if matrix.size > 0:
+        for col in range(matrix.shape[1]):
+            counts = np.bincount(matrix[:, col], minlength=6)
+            mode_val = counts.argmax()
+            consensus_row.append(mode_val)
+    consensus_row = np.array(consensus_row, dtype=np.int8)
+
+    plot_matrix = matrix.copy()
+    plot_ids = list(ids)
+
+    # コンセンサス行追加
+    if show_consensus:
+        plot_matrix = np.vstack([consensus_row, plot_matrix])
+        plot_ids = ["Consensus"] + plot_ids
+
+    # テキスト行列作成 (表示用)
+    text_matrix = None
+    if show_text or diff_mode:
+        text_matrix = np.empty(plot_matrix.shape, dtype=object)
+        
+        # 1. 基本文字埋め
+        for val, char in int_to_char.items():
+            text_matrix[plot_matrix == val] = char
+            
+        # 2. Diff Mode: コンセンサスと一致する場所を '*' に置換
+        # Comparison with consensus_row
+        if diff_mode:
+            # 行ごとに比較
+            for i in range(plot_matrix.shape[0]):
+                # コンセンサス行自体は置換しない
+                if show_consensus and i == 0: continue
+                
+                # 一致箇所マスク
+                match_mask = (plot_matrix[i] == consensus_row)
+                # Gap(-) 同士の一致も '*' にするか？ -> 通常はGapは空白っぽく見せたいが、
+                # ユーザー要望は「変異箇所を明瞭に」なので、一致は全部アスタリスク
+                # ただしGapは薄い色なので '*' があっても目立たないかも?
+                # ここでは一致＝'*'とする
+                text_matrix[i][match_mask] = '.' # '*'だとごちゃつくのでドット、または要望通りアスタリスク
+                # ユーザー要望: "同じところはアスタリスク"
+                text_matrix[i][match_mask] = '*'
+
+    # トリム範囲
     shapes = []
     if start_pos is not None and end_pos is not None:
-        max_col = matrix.shape[1]
+        max_col = plot_matrix.shape[1]
+        y_len = len(plot_ids)
         # 左側の除外エリア
         if start_pos > 0:
-            shapes.append(dict(type="rect", x0=-0.5, y0=-0.5, x1=start_pos-0.5, y1=len(ids)-0.5, 
+            shapes.append(dict(type="rect", x0=0.5, y0=-0.5, x1=start_pos+0.5, y1=y_len-0.5, 
                                fillcolor="rgba(100,100,100,0.5)", line=dict(width=0)))
         # 右側の除外エリア
         if end_pos < max_col:
-            shapes.append(dict(type="rect", x0=end_pos-0.5, y0=-0.5, x1=max_col-0.5, y1=len(ids)-0.5, 
+            shapes.append(dict(type="rect", x0=end_pos+0.5, y0=-0.5, x1=max_col+0.5, y1=y_len-0.5, 
                                fillcolor="rgba(100,100,100,0.5)", line=dict(width=0)))
 
-    # カラースケール: 0:Gap(Grey), 1:A(Red), 2:T(Green), 3:G(Yellow), 4:C(Blue), 5:Other(Black)
-    # Plotlyのcolorscaleは0-1正規化が必要
-    # 離散値のためのトリック
+    # カラースケール
     colors = [
         [0.0, '#eeeeee'], [0.16, '#eeeeee'], # 0 (Gap)
         [0.16, '#ff9999'], [0.33, '#ff9999'], # 1 (A)
@@ -63,24 +112,37 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None):
         [0.83, '#cccccc'], [1.0, '#cccccc']   # 5 (Other)
     ]
     
-    fig = go.Figure(data=go.Heatmap(
-        z=matrix,
-        x=list(range(1, matrix.shape[1] + 1)),
-        y=ids,
+    # Heatmap引数
+    heatmap_kwargs = dict(
+        z=plot_matrix,
+        x=list(range(1, plot_matrix.shape[1] + 1)),
+        y=plot_ids,
         colorscale=colors,
         showscale=False,
         ygap=1,
-        xgap=0
-    ))
+        xgap=0,
+    )
+    
+    if show_text:
+        heatmap_kwargs["text"] = text_matrix
+        heatmap_kwargs["texttemplate"] = "%{text}"
+        # フォントサイズ調整（文字が見えるように）
+        # 自動調整されるが、小さすぎると見えない
+    else:
+        # Hover info用にテキストを渡しておく（Diffが表示されると便利）
+        if diff_mode:
+             heatmap_kwargs["hovertext"] = text_matrix
+
+    fig = go.Figure(data=go.Heatmap(**heatmap_kwargs))
     
     fig.update_layout(
-        title="Alignment Overview (Zoomable)",
+        title="Alignment Overview",
         xaxis_title="Position",
         yaxis_title="Sequence ID",
-        height=400 + (len(ids) * 10), # 配列数に応じて高さを調整
+        height=400 + (len(plot_ids) * 15), # テキストが入るので少し高く
         margin=dict(l=20, r=20, t=40, b=20),
         shapes=shapes,
-        yaxis=dict(autorange="reversed") # 上から順に表示
+        yaxis=dict(autorange="reversed")
     )
     
     return fig
@@ -103,6 +165,13 @@ def open_alignment_editor(initial_df):
     
     # --- 1. ヒートマップ可視化 (Placeholder) ---
     st.subheader("1. Visualization & Trimming")
+    
+    # 表示オプション
+    c_opt1, c_opt2, c_opt3 = st.columns(3)
+    show_consensus = c_opt1.checkbox("Show Consensus Row", value=True)
+    show_text = c_opt2.checkbox("Show ATGC Text", value=True)
+    diff_mode = c_opt3.checkbox("Highlight Diff (*)", value=False, help="Consensusと同じ塩基をアスタリスクで表示します")
+
     plot_placeholder = st.empty() # 後で描画することで、テーブルの変更を即座に反映
     
     # --- 2. フィルタリング & 編集 ---
@@ -151,7 +220,7 @@ def open_alignment_editor(initial_df):
         start_pos, end_pos = trim_range
         
         if matrix is not None:
-            fig = plot_alignment_heatmap(matrix, ids, start_pos, end_pos)
+            fig = plot_alignment_heatmap(matrix, ids, start_pos, end_pos, show_text, show_consensus, diff_mode)
             # ズーム有効化 (scrollZoom)
             st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
 
