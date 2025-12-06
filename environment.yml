@@ -5,11 +5,9 @@ channels:
   - defaults
 dependencies:
   - python=3.10
-  # 重い解析ツールのみCondaで入れる
   - mafft
   - iqtree
   - trimal
-  # Pythonライブラリはpipで入れる（こちらの方が高速で安定しやすい）
   - pip
   - pip:
     - streamlit
