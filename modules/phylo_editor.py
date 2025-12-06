@@ -41,37 +41,38 @@ def get_colorscale(scheme="Default"):
     カラースキーム定義
     戻り値: (colorscale_list, bar_color_map, text_color)
     """
-    # 0:-/N, 1:A, 2:T, 3:G, 4:C, 5:Other
+    # 0:-/N, 1:A, 2:T, 3:G, 4:C, 5:Other, 6:Match(DiffMode)
     text_color = "black"
     
+    # Base map
     if scheme == "AliView (Classic)":
-        # High contrast: A=Red, C=Green, G=Yellow, T=Blue
         c_map = {
-            0: '#FFFFFF', # Gap (White)
-            1: '#FF4444', # A Red
-            2: '#44FF44', # T Green 
-            3: '#FFD700', # G Yellow
-            4: '#4444FF', # C Blue
-            5: '#AAAAAA'  # Other
+            0: '#FFFFFF', # Gap
+            1: '#FF4444', # A
+            2: '#44FF44', # T
+            3: '#FFD700', # G
+            4: '#4444FF', # C
+            5: '#AAAAAA', # Other
+            6: '#F8F8F8'  # Match (Very light grey/White)
         }
     elif scheme == "Clustal":
-        # Clustal approximation
-        c_map = {0: '#FFFFFF', 1: '#E41A1C', 2: '#4DAF4A', 3: '#FF7F00', 4: '#377EB8', 5: '#999999'}
+        c_map = {0: '#FFFFFF', 1: '#E41A1C', 2: '#4DAF4A', 3: '#FF7F00', 4: '#377EB8', 5: '#999999', 6: '#FFFFFF'}
         text_color = "black"
     elif scheme == "Nucleotide (Dark)":
-        # Dark mode style
-        c_map = {0: '#222222', 1: '#FF5555', 2: '#55FF55', 3: '#FFFF55', 4: '#5555FF', 5: '#666666'}
+        c_map = {0: '#222222', 1: '#FF5555', 2: '#55FF55', 3: '#FFFF55', 4: '#5555FF', 5: '#666666', 6: '#333333'}
         text_color = "white"
-    else: # Default (Pastel)
+    else: # Default
         c_map = {
-            0: '#eeeeee', 1: '#ff9999', 2: '#99ff99', 3: '#ffff99', 4: '#9999ff', 5: '#cccccc'
+            0: '#eeeeee', 1: '#ff9999', 2: '#99ff99', 3: '#ffff99', 4: '#9999ff', 5: '#cccccc', 6: '#ffffff'
         }
     
-    # Plotly Colorscale construction
+    # Plotly Colorscale (Discrete 0..6)
+    # Range 0.0-1.0 mapped to 0,1,2,3,4,5,6 (7 items)
     colors = []
-    step = 1.0/6.0
-    for i in range(6):
-        c = c_map.get(i, '#ffffff')
+    n_bins = 7
+    step = 1.0/n_bins
+    for i in range(n_bins):
+        c = c_map.get(i, c_map.get(0))
         colors.append([i*step, c])
         colors.append([(i+1)*step, c])
         
@@ -80,11 +81,12 @@ def get_colorscale(scheme="Default"):
 def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=False, show_consensus_row=False, diff_mode=False, color_scheme="Default", dense_view=True):
     """
     Plotlyでアラインメントを描画 (3部構成: Bar / Consensus / Alignment)
+    高さ調整とDiff表示を強化
     """
     if matrix is None: return None
     
-    # 1. データの準備
-    int_to_char = {0: '-', 1: 'A', 2: 'T', 3: 'G', 4: 'C', 5: 'N'}
+    # 1. データ準備
+    int_to_char = {0: '-', 1: 'A', 2: 'T', 3: 'G', 4: 'C', 5: 'N', 6: '.'}
     seq_len = matrix.shape[1]
     n_seq = matrix.shape[0]
 
@@ -94,31 +96,53 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
     if matrix.size > 0:
         for col in range(seq_len):
             col_data = matrix[:, col]
-            counts = np.bincount(col_data, minlength=6)
+            counts = np.bincount(col_data, minlength=7) # 6まで許容
             total = len(col_data)
             mode_val = counts.argmax()
+            # Gap(0)やOther(5)を除外すべきか？
+            # ここではシンプルに最頻値
             score = counts[mode_val] / total if total > 0 else 0
+            if mode_val >= 6: mode_val = 5 # 安全策
             consensus_indices.append(mode_val)
             consensus_scores.append(score)
             
     consensus_row = np.array(consensus_indices, dtype=np.int8)
 
-    # 2. サブプロット構成
-    # Row 1: Bar Chart (0.15)
-    # Row 2: Consensus Seq (0.05 or fixed height)
-    # Row 3: Main Alignment (0.80)
+    # --- 高さ計算 (重要) ---
+    # ユーザー要望: "この画面上に15配列くらい" -> 1行あたり25px程度
+    PIXELS_PER_ROW = 25
+    BAR_HEIGHT = 80
+    CONS_HEIGHT = 25
+    HEADER_TOTAL = BAR_HEIGHT + CONS_HEIGHT + 50 # margins
+    
+    main_height = n_seq * PIXELS_PER_ROW
+    total_height = HEADER_TOTAL + main_height
+    min_total = 400
+    if total_height < min_total:
+        total_height = min_total
+        # Recalculate main ratio to fill space? No, maintain pixel size priority?
+        # If we stretch, cells become tall. Better to have empty space?
+        # Plotly heatmaps stretch. To avoid stretch, we need fixed aspect ratio or correct domain.
+        # But we can't easily leave empty space in subplots without complexity.
+        # We will accept stretch if few sequences.
+
+    # Ratios
+    r1 = BAR_HEIGHT / total_height
+    r2 = CONS_HEIGHT / total_height
+    r3 = 1.0 - (r1 + r2) - 0.02 # Buffer
+
     fig = make_subplots(
         rows=3, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.01, # 隙間を詰める
-        row_heights=[0.15, 0.05, 0.80],
+        vertical_spacing=0.01,
+        row_heights=[r1, r2, r3],
         subplot_titles=("", "", "")
     )
 
     colorscale, c_map, text_color = get_colorscale(color_scheme)
     x_axis = list(range(1, seq_len + 1))
 
-    # --- Row 1: Consensus Strength (Bar) ---
+    # --- Row 1: Bar ---
     bar_colors = [c_map.get(idx, '#cccccc') for idx in consensus_indices]
     fig.add_trace(go.Bar(
         x=x_axis, y=consensus_scores,
@@ -129,109 +153,88 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
         text=[int_to_char[i] for i in consensus_indices]
     ), row=1, col=1)
 
-    # --- Row 2: Consensus Sequence (Fixed Header) ---
-    # コンセンサス配列のみのヒートマップ
-    # 常にテキストを表示して見やすくする
+    # --- Row 2: Consensus Seq ---
     cons_text = [int_to_char[v] for v in consensus_indices]
     fig.add_trace(go.Heatmap(
         z=consensus_row.reshape(1, -1),
-        x=x_axis,
-        y=["Consensus"],
+        x=x_axis, y=["Consensus"],
         colorscale=colorscale,
         showscale=False,
         text=[cons_text],
         texttemplate="%{text}",
         textfont=dict(family="monospace", color=text_color, size=14),
-        xgap=0 if dense_view else 1,
-        ygap=0,
-        zsmooth=False, # Pixelated rendering
-        hoverinfo="x+text"
+        xgap=0, ygap=0,
+        zsmooth=False
     ), row=2, col=1)
 
     # --- Row 3: Main Alignment ---
-    # コンセンサス行を含めない（別枠にしたので）
-    # Diff Modeの計算用テキスト
+    plot_matrix = matrix.copy()
+    
+    # Diff Mode: 背景色を変更
     text_matrix = None
+    if diff_mode:
+        # コンセンサス一致箇所を '6' (Match Color) に変更
+        for i in range(n_seq):
+            match_mask = (matrix[i] == consensus_row)
+            plot_matrix[i][match_mask] = 6 # 6番目の色(White/Grey)
+    
+    # Text Matrix
     if show_text or diff_mode:
         text_matrix = np.empty(matrix.shape, dtype=object)
         for val, char in int_to_char.items():
+            if val == 6: continue
             text_matrix[matrix == val] = char
-            
+        
+        # Diff Modeでの文字表示
         if diff_mode:
-            # コンセンサスと比較して一致を '.' に
             for i in range(n_seq):
                 match_mask = (matrix[i] == consensus_row)
-                text_matrix[i][match_mask] = '.'
+                text_matrix[i][match_mask] = '.' # Match -> Dot
+                # Mismatch -> Original char (already set)
 
     heatmap_kwargs = dict(
-        z=matrix,
+        z=plot_matrix,
         x=x_axis,
         y=ids,
-        colorscale=colorscale,
+        colorscale=colorscale, # 0-6対応版
         showscale=False,
         xgap=0 if dense_view else 1,
         ygap=0 if dense_view else 1,
-        zsmooth=False, # 重要: ズームアウト時の消失（エイリアシング）を防ぐ
+        zsmooth=False,
     )
 
-    # テキスト表示制御
-    # 大規模データで全セルテキスト表示は重い＆見えないので、閾値を設けるかユーザー設定に従う
-    # ここではshow_textに従うが、フォントサイズを調整
     if show_text:
         heatmap_kwargs["text"] = text_matrix
         heatmap_kwargs["texttemplate"] = "%{text}"
         heatmap_kwargs["textfont"] = dict(family="monospace", color=text_color)
     else:
-        # Hoverには常に情報を出す
-        if diff_mode:
-            heatmap_kwargs["hovertext"] = text_matrix
-        else:
-             # 通常モードでもHoverで塩基が見えると嬉しい
-             # しかしtext_matrixを作ると重いので、diff_mode or show_textの時だけに生成している
-             pass
+        if diff_mode: heatmap_kwargs["hovertext"] = text_matrix
 
     fig.add_trace(go.Heatmap(**heatmap_kwargs), row=3, col=1)
 
-    # --- Shapes (Trimming Mask) ---
-    # Row 3 (Main) にのみ適用
+    # Shapes
     if start_pos is not None and end_pos is not None:
         if start_pos > 0:
-            fig.add_shape(type="rect", x0=0.5, y0=-0.5, x1=start_pos+0.5, y1=len(ids)-0.5,
-                          fillcolor="rgba(0,0,0,0.5)", line=dict(width=0), 
-                          row=3, col=1)
+            fig.add_shape(type="rect", x0=0.5, y0=-0.5, x1=start_pos+0.5, y1=n_seq-0.5,
+                          fillcolor="rgba(0,0,0,0.5)", line=dict(width=0), row=3, col=1)
         if end_pos < seq_len:
-            fig.add_shape(type="rect", x0=end_pos+0.5, y0=-0.5, x1=seq_len+0.5, y1=len(ids)-0.5,
-                          fillcolor="rgba(0,0,0,0.5)", line=dict(width=0),
-                          row=3, col=1)
+            fig.add_shape(type="rect", x0=end_pos+0.5, y0=-0.5, x1=seq_len+0.5, y1=n_seq-0.5,
+                          fillcolor="rgba(0,0,0,0.5)", line=dict(width=0), row=3, col=1)
 
-    # --- Layout ---
-    # 高さ調整: Main Alignmentの行数依存
-    # Row1(Bar) + Row2(Consensus) は固定高
-    # Row2は1行分なので非常に小さい。
-    min_height = 500
-    dynamic_height = 150 + (len(ids) * 20) # Header + list
-    
+    # Layout Update
     fig.update_layout(
-        title="Alignment Editor",
-        height=max(min_height, dynamic_height),
-        margin=dict(l=20, r=20, t=40, b=20),
+        title="", # タイトル削除して省スペース化
+        height=total_height,
+        margin=dict(l=20, r=20, t=10, b=10), # マージン詰める
         dragmode='pan',
-        # Axes settings
-        yaxis=dict(domain=[0.85, 1.0]),     # Row 1
-        yaxis2=dict(domain=[0.80, 0.85], fixedrange=True), # Row 2 (Fixed Y)
-        yaxis3=dict(domain=[0.0, 0.79], autorange="reversed"), # Row 3 (Scrollable)
+        yaxis3=dict(autorange="reversed") # Row 3
     )
     
-    # 軸連動
     fig.update_xaxes(range=[0.5, seq_len+0.5])
     
-    # LayoutのGrid調整がmake_subplotsで上書きされる場合があるので、必要ならupdate_layoutで調整
-    # make_subplotsのrow_heightsは相対比率なので、厳密なピクセル固定は難しい。
-    # しかしdomain指定で上書き可能。
-    
-    # Row 2 (Consensus) のラベルを見やすく
-    fig.update_yaxes(showticklabels=False, row=1, col=1) # Bar chart Y axis hidden
-    fig.update_yaxes(showticklabels=True, row=2, col=1)  # "Consensus" label
+    # yaxis labels
+    fig.update_yaxes(showticklabels=False, row=1, col=1)
+    fig.update_yaxes(showticklabels=True, row=2, col=1)
     
     return fig
 
