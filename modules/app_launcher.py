@@ -1,11 +1,10 @@
 import streamlit as st
-# 各機能モジュールをインポート
 from modules.downloader import app_downloader
 from modules.phylo import app_phylo
 from modules.waveform_ui import app_waveform_main
 
-# --- メイン設定 ---
-st.set_page_config(page_title="PhyloPipeline Suite Ultimate", layout="wide", page_icon="🧬")
+# --- アプリ設定 ---
+st.set_page_config(page_title="PhyloPipeline Suite", layout="wide", page_icon="🧬")
 
 # --- サイドバーメニュー ---
 st.sidebar.title("🧬 PhyloPipeline")
@@ -20,7 +19,7 @@ app_mode = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
-# --- モード切替実行 ---
+# --- モード切替 ---
 if "Waveform" in app_mode:
     app_waveform_main()
 elif "Downloader" in app_mode:
