@@ -101,28 +101,17 @@ def open_alignment_editor(initial_df):
         
     df = st.session_state.editor_df
     
-    # --- 1. ヒートマップ可視化 ---
-    matrix, ids = alignment_to_matrix(df)
-    max_len = matrix.shape[1] if matrix is not None else 0
-    
+    # --- 1. ヒートマップ可視化 (Placeholder) ---
     st.subheader("1. Visualization & Trimming")
+    plot_placeholder = st.empty() # 後で描画することで、テーブルの変更を即座に反映
     
-    # トリム用スライダー
-    trim_range = st.slider("Trim Range (Keep Region)", 1, max_len, (1, max_len), key="trim_slider")
-    start_pos, end_pos = trim_range
-    
-    # プロット
-    if matrix is not None:
-        fig = plot_alignment_heatmap(matrix, ids, start_pos, end_pos)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # --- 2. フィルタリング ---
+    # --- 2. フィルタリング & 編集 ---
     st.subheader("2. Filtering & Editing")
     c1, c2 = st.columns([2, 1])
     
     with c1:
-        # データエディタ（削除用）
-        st.caption("チェックを外すと削除されます (Include=False)")
+        # データエディタ（削除・ID編集用）
+        st.caption("IDの編集や、チェックを外して削除が可能です。")
         edited_df = st.data_editor(
             df, 
             hide_index=True, 
@@ -130,11 +119,14 @@ def open_alignment_editor(initial_df):
             height=300,
             column_config={
                 "Include": st.column_config.CheckboxColumn("Keep", width="small"),
-                "ID": st.column_config.TextColumn("ID", disabled=True),
+                "ID": st.column_config.TextColumn("ID", disabled=False), # 編集可能に変更
                 "Sequence": st.column_config.TextColumn("Sequence", disabled=True),
             }
         )
-        # 反映（データエディタの変更を検知して更新するのは難しいので、ボタンで確定させる）
+        # 編集結果をStateに同期（次回の基準にするため）
+        # ただし無限ループに注意。editor_dfを更新するとdata_editorのinputが変わる。
+        # data_editorはinputが変わるとリセットされることがあるが、experimental_data_editorの挙動による。
+        # ここでは単純に `edited_df` を使ってプロットを描くことで表示上の同期を図る。
     
     with c2:
         st.markdown("##### Filter Actions")
@@ -142,9 +134,26 @@ def open_alignment_editor(initial_df):
         max_gap = st.slider("Max Gap Ratio", 0.0, 1.0, 1.0, 0.05, help="Remove sequences with more than X% gaps")
         if st.button("Apply Gap Filter"):
             def calc_gap(s): return s.count("-") / len(s) if len(s) > 0 else 1.0
+            # edited_dfをベースにフィルタ
             edited_df["Include"] = edited_df["Sequence"].apply(lambda s: calc_gap(s) <= max_gap)
             st.session_state.editor_df = edited_df
             st.rerun()
+
+    # --- 遅延描画: ヒートマップ ---
+    # テーブルでの変更（ID変更やInclude変更）を反映したデータをプロットに渡す
+    matrix_df = edited_df[edited_df["Include"] == True] if not edited_df.empty else edited_df
+    matrix, ids = alignment_to_matrix(matrix_df)
+    max_len = matrix.shape[1] if matrix is not None else 0
+    
+    with plot_placeholder.container():
+        # トリム用スライダー（この場所で定義すると上部に表示される）
+        trim_range = st.slider("Trim Range (Keep Region)", 1, max_len, (1, max_len), key="trim_slider")
+        start_pos, end_pos = trim_range
+        
+        if matrix is not None:
+            fig = plot_alignment_heatmap(matrix, ids, start_pos, end_pos)
+            # ズーム有効化 (scrollZoom)
+            st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
 
     # --- 3. 確定ボタン ---
     st.divider()
