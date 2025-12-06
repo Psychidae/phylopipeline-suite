@@ -14,8 +14,8 @@ st.sidebar.caption("Integrated Analysis Suite")
 
 app_mode = st.sidebar.radio(
     "Select Mode",
-    ["1. Waveform Validator (波形解析)", 
-     "2. GenBank Downloader (配列取得)", 
+    ["1. Waveform Validator (波形解析)",
+     "2. GenBank Downloader (配列取得)",
      "3. PhyloPipeline (系統解析)",
      "4. Alignment Viewer (アライメント表示)"]
 )
@@ -23,9 +23,11 @@ app_mode = st.sidebar.radio(
 st.sidebar.markdown("---")
 
 # --- モード切替 ---
-if "Waveform" in app_mode:
+if "Waveform Validator" in app_mode:
     app_waveform_main()
-elif "Downloader" in app_mode:
+elif "GenBank Downloader" in app_mode:
     app_downloader()
 elif "Phylo" in app_mode:
     app_phylo()
+elif "Alignment Viewer" in app_mode:
+    app_viewer()
