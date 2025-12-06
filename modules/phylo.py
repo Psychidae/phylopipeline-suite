@@ -18,6 +18,10 @@ def app_phylo():
     st.header("🌳 PhyloPipeline Pro")
     st.info("MAFFT → (trimAl) → 編集 → IQ-TREE + 種区分解析")
 
+    # --- ステート初期化 ---
+    if 'phylo_step' not in st.session_state: st.session_state.phylo_step = 1
+    if 'phylo_aligned_df' not in st.session_state: st.session_state.phylo_aligned_df = None
+
     # --- ツールパス設定 ---
     mafft_def = find_tool_path("mafft") or "mafft"
     trimal_def = find_tool_path("trimal") or "trimal"
@@ -71,10 +75,6 @@ def app_phylo():
             else:
                 model_str = model_sel_ui
 
-    # --- ステート初期化 ---
-    if 'phylo_step' not in st.session_state: st.session_state.phylo_step = 1
-    if 'phylo_aligned_df' not in st.session_state: st.session_state.phylo_aligned_df = None
-    
     # --- ファイルアップロード ---
     uploaded_file = st.file_uploader("FASTAファイルをアップロード", type=["fasta", "fas", "fa"], key="phylo_up")
 
