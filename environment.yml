@@ -1,0 +1,16 @@
+name: phylosuite
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10
+  - streamlit
+  - pandas
+  - plotly
+  - mafft
+  - iqtree
+  - trimal
+  - pip
+  - pip:
+    - biopython
