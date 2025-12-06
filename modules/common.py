@@ -36,17 +36,32 @@ def run_command(cmd, **kwargs):
     外部コマンド実行（Windowsの文字化け対策込み）
     stdout/stderr引数がある場合はcapture_outputを無効化して競合を防ぐ
     """
+    # 実行しようとしているコマンド名
+    executable = cmd[0]
+
+    # コマンドが存在するか事前にチェック
+    if shutil.which(executable) is None and not os.path.exists(executable):
+        raise FileNotFoundError(
+            f"ツールが見つかりません: '{executable}'\n"
+            "Cloud環境の場合は environment.yml にツールが含まれているか、"
+            "ローカル環境の場合はパス設定が正しいか確認してください。"
+        )
+
     # ファイル出力指定がない場合のみ、結果を変数にキャプチャする
     if 'stdout' not in kwargs and 'stderr' not in kwargs:
         kwargs['capture_output'] = True
 
-    return subprocess.run(
-        cmd, 
-        text=True, 
-        encoding='utf-8', 
-        errors='replace', 
-        **kwargs
-    )
+    try:
+        return subprocess.run(
+            cmd, 
+            text=True, 
+            encoding='utf-8', 
+            errors='replace', 
+            **kwargs
+        )
+    except FileNotFoundError:
+        # 万が一 shutil.which をすり抜けた場合の保険
+        raise FileNotFoundError(f"ツールが見つかりません: '{executable}'")
 
 def generate_alignment_html_from_df(df, max_seqs=50, display_width=80):
     """系統解析用: アラインメント結果の簡易HTML生成"""
