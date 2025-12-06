@@ -79,9 +79,17 @@ def app_phylo():
     # --- ファイルアップロード ---
     uploaded_file = st.file_uploader("FASTAファイルをアップロード", type=["fasta", "fas", "fa"], key="phylo_up")
 
-    if uploaded_file:
-        # 新規ファイル読み込み処理
-        if st.session_state.get('current_phylo_file') != uploaded_file.name:
+    # --- データソース: Viewerからのインポート ---
+    if 'viewer_df' in st.session_state:
+        if st.checkbox("Use data from Alignment Viewer", key="p_use_viewer"):
+             st.session_state.phylo_initial_df = st.session_state.viewer_df.copy()
+             st.session_state.phylo_step = 1 # Reset to Step 1
+             # Viewerデータ使用時はcurrent_phylo_fileをクリアまたは特殊値に
+             st.session_state.current_phylo_file = "Imported from Viewer"
+
+    if uploaded_file or ('phylo_initial_df' in st.session_state):
+        # 新規ファイル読み込み処理 (アップロードがある場合のみ)
+        if uploaded_file and st.session_state.get('current_phylo_file') != uploaded_file.name:
             st.session_state.phylo_step = 1
             st.session_state.current_phylo_file = uploaded_file.name
             st.session_state.phylo_aligned_df = None
@@ -101,7 +109,7 @@ def app_phylo():
             except Exception as e:
                 st.error(f"Error parsing FASTA: {e}")
                 st.stop()
-
+        
         # === Step 1: アラインメント実行 ===
         if st.session_state.phylo_step == 1:
             st.subheader("1. アラインメント実行")
