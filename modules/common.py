@@ -1,5 +1,6 @@
 import shutil
 import os
+import sys
 import subprocess
 import streamlit as st
 
@@ -14,7 +15,18 @@ def find_tool_path(tool_name):
         path = shutil.which(name)
         if path: return path
 
-    # 2. ローカル探索
+    # 2. Python実行環境のbinディレクトリ (Conda/Venv対応)
+    # Streamlit CloudなどでPATHが通っていない場合があるため
+    python_dir = os.path.dirname(sys.executable)
+    for name in target_names:
+        candidate = os.path.join(python_dir, name)
+        if os.path.exists(candidate):
+            return candidate
+        # Windows対応
+        if os.path.exists(candidate + ".exe"): return candidate + ".exe"
+        if os.path.exists(candidate + ".bat"): return candidate + ".bat"
+
+    # 3. ローカル探索
     base_dir = os.getcwd()
     search_dirs = [os.path.join(base_dir, "tools"), base_dir]
     for search_dir in search_dirs:
