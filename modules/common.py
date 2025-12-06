@@ -9,11 +9,13 @@ def find_tool_robust(target_names):
     システムパスまたは 'tools' フォルダ内から再帰的に探索して返す
     """
     # 1. システムパス (PATH) から探す
+    # クラウド環境(Streamlit Cloud)ではここで見つかり、即座に終了するため負荷はない
     for name in target_names:
         path = shutil.which(name)
         if path: return path
 
     # 2. カレントディレクトリの 'tools' フォルダ内をくまなく探す
+    # ローカル環境専用のロジック
     base_dir = os.getcwd()
     search_dirs = [os.path.join(base_dir, "tools"), base_dir]
     
