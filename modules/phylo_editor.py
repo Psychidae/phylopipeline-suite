@@ -174,12 +174,10 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
     return fig
 
 @st.dialog("Advanced Alignment Editor", width="large")
-def open_alignment_editor(initial_df):
+def open_alignment_editor(initial_df, target_key="phylo_aligned_df"):
     """
     高機能アラインメントエディタ
-    - 俯瞰ヒートマップズーム
-    - トリムスライダー
-    - フィルタリング
+    target_key: 保存時に更新するst.session_stateのキー
     """
     st.info("全体を俯瞰して、不要な配列の削除や、両端のトリミングを行えます。")
     
@@ -264,7 +262,7 @@ def open_alignment_editor(initial_df):
             final_df["Sequence"] = final_df["Sequence"].apply(lambda s: s[s_idx:e_idx])
             
             # メインステートに保存
-            st.session_state.phylo_aligned_df = final_df
+            st.session_state[target_key] = final_df
             del st.session_state.editor_df # 掃除
             st.rerun()
             
