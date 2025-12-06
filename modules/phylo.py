@@ -119,11 +119,11 @@ def app_phylo():
                         
                         with st.spinner("Running MAFFT..."):
                             cmd = [mafft_bin, "--quiet", mafft_algo, "--op", mafft_op, "--ep", mafft_ep, inp]
-                            # stderrをPIPEにリダイレクトして /dev/stderr への書き込みエラーを回避
+                            # stderrをDEVNULLに捨てて /dev/stderr への書き込みエラーを回避
                             with open(out_aln, "w") as f: 
-                                res = run_command(cmd, stdout=f, stderr=subprocess.PIPE)
+                                res = run_command(cmd, stdout=f, stderr=subprocess.DEVNULL)
                                 if res.returncode != 0:
-                                     st.error(f"MAFFT Error: {res.stderr}")
+                                     st.error("MAFFT execution failed (stderr discarded due to environment restrictions).")
                         
                         final_aln = out_aln
                         if use_trimal:
@@ -135,9 +135,6 @@ def app_phylo():
                         # check file size
                         if os.path.getsize(final_aln) == 0:
                              st.error("アラインメント結果が空です。MAFFTが正しく実行されなかった可能性があります。")
-                             if 'res' in locals() and res.stderr:
-                                 with st.expander("MAFFT Error Log"):
-                                     st.code(res.stderr)
                         else:
                             recs = list(SeqIO.parse(final_aln, "fasta"))
                             if not recs:
