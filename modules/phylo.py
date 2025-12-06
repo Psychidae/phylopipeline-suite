@@ -35,7 +35,7 @@ def app_phylo():
         with t_mafft:
             st.markdown("#### MAFFT Settings")
             c1, c2 = st.columns(2)
-            mafft_bin = c1.text_input("Path", value=mafft_def, key="m_path")
+            mafft_bin = c1.text_input("Path", value=mafft_def, key="m_path_v2")
             mafft_algo = c2.selectbox("Algo", ["--auto", "--linsi", "--fftnsi"], key="m_algo")
             c3, c4 = st.columns(2)
             mafft_op = c3.text_input("Op (Gap Open)", value="1.53", key="m_op")
@@ -45,12 +45,12 @@ def app_phylo():
             st.markdown("#### trimAl Settings")
             use_trimal = st.checkbox("Use trimAl", value=False, key="t_use")
             c1, c2 = st.columns(2)
-            trimal_bin = c1.text_input("Path", value=trimal_def, key="t_path")
+            trimal_bin = c1.text_input("Path", value=trimal_def, key="t_path_v2")
             trimal_met = c2.selectbox("Method", ["automated1", "gappyout"], key="t_met")
             
         with t_iqtree:
             st.markdown("#### IQ-TREE Settings")
-            iqtree_bin = st.text_input("Path", value=iqtree_def, key="i_path")
+            iqtree_bin = st.text_input("Path", value=iqtree_def, key="i_path_v2")
             boot = st.number_input("Bootstrap", 1000, step=100, key="i_boot")
             
             # Phase 2: Outgroup Selection
