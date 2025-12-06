@@ -1,14 +1,18 @@
 name: phylosuite
 channels:
-  - conda-forge
   - bioconda
+  - conda-forge
   - defaults
 dependencies:
   - python=3.10
-  - streamlit
-  - pandas
-  - plotly
-  - biopython
+  # 重い解析ツールのみCondaで入れる
   - mafft
   - iqtree
   - trimal
+  # Pythonライブラリはpipで入れる（こちらの方が高速で安定しやすい）
+  - pip
+  - pip:
+    - streamlit
+    - pandas
+    - plotly
+    - biopython
