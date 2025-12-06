@@ -1,6 +1,7 @@
 import shutil
 import os
 import subprocess
+import sys
 
 def find_tool_path(tool_name):
     """ツールの実行パスを探す（Windows/Mac/Linux対応）"""
@@ -8,14 +9,19 @@ def find_tool_path(tool_name):
     path = shutil.which(tool_name)
     if path: return path
     
-    # 2. ローカル環境用の探索パス (Windows/Mac)
+    # 2. 一般的なパス (Cloud/Local)
     common_paths = [
         f"/opt/homebrew/bin/{tool_name}",
         f"/usr/local/bin/{tool_name}",
         f"/usr/bin/{tool_name}",
+        # Streamlit Cloud / Conda paths
+        f"/home/appuser/.conda/bin/{tool_name}",
+        f"/home/adminuser/.conda/bin/{tool_name}",
+        os.path.expanduser(f"~/.conda/bin/{tool_name}"),
         os.path.expanduser(f"~/anaconda3/bin/{tool_name}"),
         os.path.expanduser(f"~/miniconda3/bin/{tool_name}")
     ]
+    
     if os.name == 'nt': # Windows
          common_paths.extend([
             f"C:\\Program Files\\{tool_name}\\{tool_name}.exe",
@@ -36,17 +42,6 @@ def run_command(cmd, **kwargs):
     外部コマンド実行（Windowsの文字化け対策込み）
     stdout/stderr引数がある場合はcapture_outputを無効化して競合を防ぐ
     """
-    # 実行しようとしているコマンド名
-    executable = cmd[0]
-
-    # コマンドが存在するか事前にチェック
-    if shutil.which(executable) is None and not os.path.exists(executable):
-        raise FileNotFoundError(
-            f"ツールが見つかりません: '{executable}'\n"
-            "Cloud環境の場合は environment.yml にツールが含まれているか、"
-            "ローカル環境の場合はパス設定が正しいか確認してください。"
-        )
-
     # ファイル出力指定がない場合のみ、結果を変数にキャプチャする
     if 'stdout' not in kwargs and 'stderr' not in kwargs:
         kwargs['capture_output'] = True
@@ -60,8 +55,13 @@ def run_command(cmd, **kwargs):
             **kwargs
         )
     except FileNotFoundError:
-        # 万が一 shutil.which をすり抜けた場合の保険
-        raise FileNotFoundError(f"ツールが見つかりません: '{executable}'")
+        # 実行時に見つからなかった場合
+        raise FileNotFoundError(
+            f"ツールが見つかりません: '{cmd[0]}'\n"
+            "Cloud環境の場合は environment.yml のインストール待ちか、設定を確認してください。"
+        )
+    except Exception as e:
+        raise Exception(f"コマンド実行エラー: {e}")
 
 def generate_alignment_html_from_df(df, max_seqs=50, display_width=80):
     """系統解析用: アラインメント結果の簡易HTML生成"""
