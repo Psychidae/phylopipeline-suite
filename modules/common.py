@@ -42,7 +42,8 @@ def run_command(cmd, **kwargs):
             cmd, text=True, encoding='utf-8', errors='replace', **kwargs
         )
     except FileNotFoundError:
-         raise RuntimeError(f"コマンドが見つかりません: {cmd[0]}")
+         import os
+         raise RuntimeError(f"コマンドが見つかりません: {cmd[0]}\nPATH: {os.environ.get('PATH')}")
     except Exception as e:
         raise RuntimeError(f"実行エラー: {cmd[0]}\n{e}")
 
