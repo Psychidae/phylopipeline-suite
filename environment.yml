@@ -8,9 +8,7 @@ dependencies:
   - streamlit
   - pandas
   - plotly
+  - biopython
   - mafft
   - iqtree
   - trimal
-  - pip
-  - pip:
-    - biopython
