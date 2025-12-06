@@ -29,10 +29,10 @@ def find_tool_path(tool_name):
 
 def run_command(cmd, **kwargs):
     """外部コマンド実行"""
-    # 競合回避
-    kwargs.pop('stdout', None)
-    kwargs.pop('stderr', None)
-    kwargs['capture_output'] = True
+    
+    # stdout/stderrが指定されていない場合のみキャプチャする
+    if 'stdout' not in kwargs and 'stderr' not in kwargs:
+         kwargs['capture_output'] = True
 
     if cmd[0] is None:
         raise FileNotFoundError("ツールが見つかりません。")
