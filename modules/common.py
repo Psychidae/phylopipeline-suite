@@ -4,38 +4,17 @@ import subprocess
 import streamlit as st
 
 def find_tool_path(tool_name):
-    """
-    ツールの実行パスを探す（Windows/Mac/Linux/Streamlit Cloud完全対応）
-    """
+    """ツールの実行パスを探す（Windows/Mac/Linux対応）"""
     target_names = [tool_name]
     if tool_name == "iqtree2": target_names.append("iqtree")
     if tool_name == "mafft": target_names.append("mafft.bat")
 
-    # 1. システムパス (shutil.which)
+    # 1. システムパス
     for name in target_names:
         path = shutil.which(name)
         if path: return path
 
-    # 2. Streamlit Cloud / Conda 環境の絶対パス探索 (【重要】ここを追加)
-    # 環境変数PATHに入っていなくても、ここにあれば使う
-    cloud_paths = [
-        f"/home/appuser/.conda/bin/{tool_name}",
-        f"/home/adminuser/.conda/bin/{tool_name}",
-        f"/opt/conda/bin/{tool_name}",
-        f"/usr/local/bin/{tool_name}",
-        f"/usr/bin/{tool_name}",
-        os.path.expanduser(f"~/.conda/bin/{tool_name}")
-    ]
-    # iqtree2の場合は iqtree も探すなど柔軟に
-    expanded_paths = []
-    for p in cloud_paths:
-        expanded_paths.append(p)
-        if "iqtree2" in p: expanded_paths.append(p.replace("iqtree2", "iqtree"))
-
-    for p in expanded_paths:
-        if os.path.exists(p): return p
-
-    # 3. toolsフォルダ探索 (ローカル用)
+    # 2. ローカル探索
     base_dir = os.getcwd()
     search_dirs = [os.path.join(base_dir, "tools"), base_dir]
     for search_dir in search_dirs:
@@ -46,53 +25,78 @@ def find_tool_path(tool_name):
                     for f in files:
                         if f.lower() in candidates:
                             return os.path.join(root, f)
-    
-    return None # 見つからなければ None
+    return None
 
 def run_command(cmd, **kwargs):
-    """
-    外部コマンド実行（シンプル版）
-    """
-    # 競合する引数を削除
+    """外部コマンド実行"""
+    # 競合回避
     kwargs.pop('stdout', None)
     kwargs.pop('stderr', None)
     kwargs['capture_output'] = True
 
-    # コマンドの先頭が None (見つかっていない) の場合のガード
     if cmd[0] is None:
-        raise FileNotFoundError(f"ツールが見つかりません。設定を確認してください。")
+        raise FileNotFoundError("ツールが見つかりません。")
 
     try:
         return subprocess.run(
-            cmd, 
-            text=True, 
-            encoding='utf-8', 
-            errors='replace', 
-            **kwargs
+            cmd, text=True, encoding='utf-8', errors='replace', **kwargs
         )
     except FileNotFoundError:
          raise RuntimeError(f"コマンドが見つかりません: {cmd[0]}")
     except Exception as e:
         raise RuntimeError(f"実行エラー: {cmd[0]}\n{e}")
 
-def generate_alignment_html_from_df(df, max_seqs=50, display_width=80):
-    """HTML生成"""
-    if df is None or df.empty: return "<p>No sequences.</p>"
-    colors = {'A':'#ffc7ce','C':'#c7e5ff','G':'#ffebc7','T':'#d4ffc7','-':'#f0f0f0'}
-    html = '<div style="font-family: monospace; overflow-x: auto; white-space: nowrap;">'
+def generate_alignment_html_from_df(df, max_seqs=50, display_width=80, show_dots=False, reference_seq=None):
+    """
+    アラインメント結果のHTML生成 (ドット表示モード対応)
+    show_dots=True の場合、reference_seqと同じ塩基は '.' で表示する
+    """
+    if df.empty: return "<p>No sequences.</p>"
     
-    if "Include" in df.columns:
-        target_df = df[df["Include"] == True].head(max_seqs)
-    else:
-        target_df = df.head(max_seqs)
-        
+    colors = {'A':'#ffc7ce','C':'#c7e5ff','G':'#ffebc7','T':'#d4ffc7','-':'#f0f0f0','N':'#e0e0e0'}
+    
+    target_df = df[df["Include"] == True].head(max_seqs) if "Include" in df.columns else df.head(max_seqs)
+    
+    # リファレンス配列の取得（指定がなければ最初の配列）
+    if show_dots and reference_seq is None and not target_df.empty:
+        reference_seq = str(target_df.iloc[0]["Sequence"]).upper()
+
+    html = '<div style="font-family: Consolas, monospace; line-height: 1.2; overflow-x: auto; white-space: nowrap; background-color: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
+    
     for index, row in target_df.iterrows():
-        seq_id = str(row.get("ID", ""))[0:15]
-        seq = str(row.get("Sequence", "")).upper()[0:display_width]
-        row_html = f'<div style="margin: 2px;"><span style="display:inline-block;width:120px;">{seq_id}</span>'
-        for char in seq:
-            bg = colors.get(char, '#fff')
-            row_html += f'<span style="background:{bg};display:inline-block;width:10px;text-align:center;">{char}</span>'
+        seq_id = str(row["ID"])[:20] + "..." if len(str(row["ID"])) > 23 else str(row["ID"])
+        seq_str = str(row["Sequence"]).upper()
+        
+        # ドット変換ロジック
+        display_seq = ""
+        if show_dots and reference_seq and index > 0: # 1行目はリファレンスなのでそのまま
+            for i, char in enumerate(seq_str):
+                if i < len(reference_seq) and char == reference_seq[i] and char not in ['-', 'N']:
+                    display_seq += '.'
+                else:
+                    display_seq += char
+        else:
+            display_seq = seq_str
+            
+        # 表示幅でカット
+        display_seq = display_seq[:display_width]
+
+        row_html = f'<div style="margin: 2px;"><span style="display:inline-block;width:150px;font-size:12px;font-weight:bold;">{seq_id}</span>'
+        
+        for i, char in enumerate(display_seq):
+            # 色は元の塩基に基づいて決定（ドットでも元の色のままか、薄くするかはお好みで。ここは元の塩基色を使う）
+            original_char = seq_str[i] if i < len(seq_str) else '-'
+            bg = colors.get(original_char, '#fff')
+            
+            # ドットの場合は背景を白くして見やすくする
+            if char == '.': 
+                bg = '#fff'
+                char_style = 'color: #999; font-weight: bold;'
+            else:
+                char_style = 'color: #000;'
+
+            row_html += f'<span style="background:{bg};{char_style}display:inline-block;width:10px;text-align:center;font-size:12px;">{char}</span>'
         html += row_html + '</div>'
+    
     html += '</div>'
     return html
