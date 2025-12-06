@@ -8,6 +8,7 @@ from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from io import StringIO
+import subprocess
 
 # モジュール分割した機能をインポート
 from modules.common import find_tool_path, generate_alignment_html_from_df, run_command
