@@ -12,19 +12,19 @@ def find_tool_path(tool_name):
     if tool_name == "iqtree2": target_names.append("iqtree")
     if tool_name == "mafft": target_names.append("mafft.bat")
 
-    # 1. 現在のPython環境のbinフォルダ (Streamlit Cloudではここにあるはず)
-    current_python_bin = os.path.dirname(sys.executable)
+    # 1. 現在実行中のPythonと同じ場所(bin)を探す (これがCloudで最も確実)
+    # Streamlit Cloudでは /home/adminuser/.conda/bin/python 等で動いている
+    current_bin_dir = os.path.dirname(sys.executable)
     
     # 2. 探索パスリスト
     search_paths = [
-        current_python_bin, # 最優先
+        current_bin_dir, # 最優先
         f"/home/appuser/.conda/bin",
         f"/home/adminuser/.conda/bin",
         f"/opt/conda/bin",
         f"/usr/local/bin",
         f"/usr/bin",
-        os.path.expanduser(f"~/.conda/bin"),
-        # Local tools folder
+        # ローカル環境用
         os.path.join(os.getcwd(), "tools"),
         os.path.join(os.getcwd(), "tools", f"{tool_name}-win"),
         os.path.join(os.getcwd(), "tools", f"{tool_name}-win", "bin"),
@@ -47,21 +47,28 @@ def find_tool_path(tool_name):
         path = shutil.which(name)
         if path: return path
     
-    return None
+    return None # 見つからなければ None
 
 def run_command(cmd, **kwargs):
     """
     外部コマンド実行
     """
     executable = cmd[0]
+    
+    # パスが見つかっていない場合のガード
     if not executable:
-        raise FileNotFoundError("ツールが見つかりません。設定画面のパスを確認してください。")
+        # パスがNoneなら、コマンド名そのものを試す（パスが通っていることに賭ける）
+        # cmd[0] が Noneだと subprocessで落ちるため、本来のツール名に戻す必要があるが、
+        # ここではエラーとして通知する
+        raise FileNotFoundError("ツールのパスが特定できませんでした。")
 
     # 競合回避: ファイル出力(stdout)指定がある場合はcapture_outputしない
-    if 'stdout' not in kwargs and 'stderr' not in kwargs:
+    if 'stdout' in kwargs or 'stderr' in kwargs:
+        if 'capture_output' in kwargs:
+            del kwargs['capture_output']
+    else:
+        # 指定がない場合はキャプチャする
         kwargs['capture_output'] = True
-    elif 'capture_output' in kwargs:
-        del kwargs['capture_output']
 
     try:
         return subprocess.run(
@@ -76,51 +83,24 @@ def run_command(cmd, **kwargs):
     except Exception as e:
         raise RuntimeError(f"実行エラー: {executable}\n{e}")
 
-def generate_alignment_html_from_df(df, max_seqs=50, display_width=80, show_dots=False, reference_seq=None):
-    """アラインメント結果のHTML生成 (ドット表示対応)"""
+def generate_alignment_html_from_df(df, max_seqs=50, display_width=80):
+    """HTML生成"""
     if df is None or df.empty: return "<p>No sequences.</p>"
-    
-    colors = {'A':'#ffc7ce','C':'#c7e5ff','G':'#ffebc7','T':'#d4ffc7','-':'#f0f0f0','N':'#e0e0e0'}
-    
-    html = '<div style="font-family: Consolas, monospace; line-height: 1.2; overflow-x: auto; white-space: nowrap; background-color: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
+    colors = {'A':'#ffc7ce','C':'#c7e5ff','G':'#ffebc7','T':'#d4ffc7','-':'#f0f0f0'}
+    html = '<div style="font-family: monospace; overflow-x: auto; white-space: nowrap;">'
     
     if "Include" in df.columns:
         target_df = df[df["Include"] == True].head(max_seqs)
     else:
         target_df = df.head(max_seqs)
-
-    # リファレンス配列の取得
-    if show_dots and reference_seq is None and not target_df.empty:
-        reference_seq = str(target_df.iloc[0].get("Sequence", "")).upper()
-
+        
     for index, row in target_df.iterrows():
-        seq_id = str(row.get("ID", ""))[:20]
-        if len(str(row.get("ID", ""))) > 23: seq_id += "..."
-        
-        seq_str = str(row.get("Sequence", "")).upper()
-        
-        # ドット変換
-        display_seq = ""
-        if show_dots and reference_seq and index > 0:
-            for i, char in enumerate(seq_str):
-                if i < len(reference_seq) and char == reference_seq[i] and char not in ['-', 'N']:
-                    display_seq += '.'
-                else:
-                    display_seq += char
-        else:
-            display_seq = seq_str
-            
-        display_seq = display_seq[:display_width]
-        
-        row_html = f'<div style="margin: 2px;"><span style="display:inline-block;width:150px;font-size:12px;font-weight:bold;">{seq_id}</span>'
-        
-        for i, char in enumerate(display_seq):
-            orig = seq_str[i] if i < len(seq_str) else '-'
-            bg = colors.get(orig, '#fff')
-            style = 'color: #999; font-weight: bold;' if char == '.' else 'color: #000;'
-            if char == '.': bg = '#fff'
-            row_html += f'<span style="background:{bg};{style}display:inline-block;width:10px;text-align:center;font-size:12px;">{char}</span>'
+        seq_id = str(row.get("ID", ""))[:15]
+        seq = str(row.get("Sequence", "")).upper()[0:display_width]
+        row_html = f'<div style="margin: 2px;"><span style="display:inline-block;width:120px;">{seq_id}</span>'
+        for char in seq:
+            bg = colors.get(char, '#fff')
+            row_html += f'<span style="background:{bg};display:inline-block;width:10px;text-align:center;">{char}</span>'
         html += row_html + '</div>'
-    
     html += '</div>'
     return html
