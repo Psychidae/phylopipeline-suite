@@ -2,50 +2,151 @@ import streamlit as st
 import pandas as pd
 import time
 from Bio import Entrez, SeqIO
-from io import StringIO
+from io import StringIO, BytesIO
+import xml.etree.ElementTree as ET
 
 def app_downloader():
     st.header("🧬 GenBank Sequence Downloader")
-    st.info("CSVファイルから配列を一括取得")
+    st.info("配列データ(FASTA)と、詳細なメタデータ(Excel)を一括取得します。")
 
-    c1, c2 = st.columns([1, 2])
-    with c1:
+    col1, col2 = st.columns([1, 1.5])
+    with col1:
         st.subheader("設定")
-        email = st.text_input("Email", placeholder="email@example.com")
-        gene = st.text_input("Gene", value="Internal Transcribed Spacer")
-        db = st.selectbox("DB", ["nucleotide", "protein"])
-        ret = st.number_input("Max Count", 1, 100, 1)
+        email = st.text_input("Email (必須)", placeholder="your_email@example.com", help="NCBIの利用規約により必須です")
+        target_gene = st.text_input("ターゲット遺伝子", value="COI", help="例: COI, 16S, NADH dehydrogenase subunit 1")
+        max_ret = st.number_input("1種あたりの最大取得数", 1, 100, 1)
 
-    with c2:
-        up = st.file_uploader("List (CSV/TXT)", type=["csv", "txt"])
-        if up and email:
-            if st.button("Download"):
+    with col2:
+        st.subheader("リストアップロード")
+        uploaded_file = st.file_uploader("種名リスト (CSV/TXT, ヘッダーなし)", type=["csv", "txt"])
+        
+        if uploaded_file and email:
+            if st.button("🚀 ダウンロード開始", type="primary"):
                 try:
-                    df = pd.read_csv(up, header=None)
-                    sps = df[0].tolist()
+                    df_input = pd.read_csv(uploaded_file, header=None)
+                    species_list = df_input[0].tolist()
                     Entrez.email = email
-                    recs = []
-                    log = ""
-                    bar = st.progress(0)
-                    for i, sp in enumerate(sps):
-                        bar.progress((i+1)/len(sps))
+                    
+                    fasta_records = []
+                    metadata_list = []
+                    
+                    log_text = ""
+                    prog_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    for i, sp in enumerate(species_list):
+                        prog_bar.progress((i + 1) / len(species_list))
+                        status_text.text(f"Searching: {sp}...")
+                        
+                        # 検索
+                        term = f'"{sp}"[Organism] AND {target_gene}[All Fields]'
                         try:
-                            h = Entrez.esearch(db=db, term=f'"{sp}"[Organism] AND {gene}[All Fields]', retmax=ret)
-                            ids = Entrez.read(h)["IdList"]
-                            if ids:
-                                h2 = Entrez.efetch(db=db, id=ids, rettype="fasta", retmode="text")
-                                for r in SeqIO.parse(StringIO(h2.read()), "fasta"):
-                                    r.description = f"{sp} | {r.id}"
-                                    r.id = f"{sp.replace(' ', '_')}_{r.id}"
-                                    recs.append(r)
-                                log += f"✅ {sp}: OK\n"
-                            else: log += f"❌ {sp}: None\n"
-                            time.sleep(0.5)
-                        except Exception as e: log += f"⚠️ {sp}: {e}\n"
-                    st.text_area("Log", log)
-                    if recs:
-                        out = StringIO()
-                        SeqIO.write(recs, out, "fasta")
-                        st.download_button("Download FASTA", out.getvalue(), "seqs.fasta")
-                except Exception as e: st.error(e)
-        elif up: st.warning("Enter Email")
+                            # 1. ID検索
+                            handle = Entrez.esearch(db="nucleotide", term=term, retmax=max_ret)
+                            record = Entrez.read(handle)
+                            id_list = record["IdList"]
+                            
+                            if not id_list:
+                                log_text += f"❌ {sp}: なし\n"
+                                continue
+                            
+                            # 2. メタデータ取得 (GB形式XML)
+                            # FASTAとメタデータを別々に取るのは効率が悪いので、GBファイルを取得してパースする
+                            handle_gb = Entrez.efetch(db="nucleotide", id=id_list, rettype="gb", retmode="xml")
+                            gb_records = Entrez.parse(handle_gb)
+                            
+                            count = 0
+                            for rec in gb_records:
+                                # 基本情報
+                                accession = rec.get("GBSeq_primary-accession", "")
+                                definition = rec.get("GBSeq_definition", "")
+                                length = rec.get("GBSeq_length", "")
+                                sequence = rec.get("GBSeq_sequence", "").upper()
+                                create_date = rec.get("GBSeq_create-date", "")
+                                update_date = rec.get("GBSeq_update-date", "")
+                                
+                                # 論文情報 (最初のReference)
+                                refs = rec.get("GBSeq_references", [])
+                                journal = ""
+                                authors = ""
+                                title = ""
+                                if refs:
+                                    first_ref = refs[0]
+                                    journal = first_ref.get("GBReference_journal", "")
+                                    title = first_ref.get("GBReference_title", "")
+                                    auth_list = first_ref.get("GBReference_authors", [])
+                                    authors = ", ".join(auth_list) if auth_list else ""
+
+                                # 特徴テーブル (Sourceから採取地情報を探す)
+                                country = ""
+                                lat_lon = ""
+                                collection_date = ""
+                                collector = ""
+                                
+                                features = rec.get("GBSeq_feature-table", [])
+                                for feat in features:
+                                    if feat["GBFeature_key"] == "source":
+                                        quals = feat.get("GBFeature_quals", [])
+                                        for q in quals:
+                                            if q["GBQualifier_name"] == "country": country = q["GBQualifier_value"]
+                                            if q["GBQualifier_name"] == "lat_lon": lat_lon = q["GBQualifier_value"]
+                                            if q["GBQualifier_name"] == "collection_date": collection_date = q["GBQualifier_value"]
+                                            if q["GBQualifier_name"] == "collected_by": collector = q["GBQualifier_value"]
+
+                                # FASTA用レコード作成
+                                clean_sp = sp.replace(" ", "_")
+                                seq_id = f"{clean_sp}_{accession}"
+                                fasta_records.append(f">{seq_id} {definition}\n{sequence}\n")
+                                
+                                # メタデータリスト追加
+                                metadata_list.append({
+                                    "Species": sp,
+                                    "Accession": accession,
+                                    "Definition": definition,
+                                    "Length": length,
+                                    "Country": country,
+                                    "Lat_Lon": lat_lon,
+                                    "Collection_Date": collection_date,
+                                    "Collector": collector,
+                                    "Authors": authors,
+                                    "Journal": journal,
+                                    "Title": title,
+                                    "Create_Date": create_date,
+                                    "Update_Date": update_date
+                                })
+                                count += 1
+                                
+                            log_text += f"✅ {sp}: {count}件取得\n"
+                            time.sleep(0.5) # API制限回避
+                            
+                        except Exception as e:
+                            log_text += f"⚠️ {sp}: Error {e}\n"
+                    
+                    status_text.success("完了！")
+                    st.text_area("ログ", log_text, height=100)
+                    
+                    if fasta_records:
+                        # FASTAダウンロード
+                        fasta_str = "".join(fasta_records)
+                        st.download_button("📥 FASTAをダウンロード", fasta_str, "sequences.fasta")
+                        
+                        # Excelダウンロード
+                        if metadata_list:
+                            df_meta = pd.DataFrame(metadata_list)
+                            excel_buffer = BytesIO()
+                            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                                df_meta.to_excel(writer, index=False, sheet_name='Metadata')
+                            
+                            st.download_button(
+                                "📥 メタデータ(Excel)をダウンロード",
+                                excel_buffer.getvalue(),
+                                "metadata.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                    else:
+                        st.warning("データが見つかりませんでした。")
+                        
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {e}")
+        elif uploaded_file:
+            st.warning("メールアドレスを入力してください。")
