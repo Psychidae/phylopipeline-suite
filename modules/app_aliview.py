@@ -6,14 +6,16 @@ import numpy as np
 try:
     from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
     HAS_AGGRID = True
-except ImportError:
+    IMPORT_ERR = ""
+except ImportError as e:
     HAS_AGGRID = False
+    IMPORT_ERR = str(e)
 
 def app_aliview():
     st.header("🧬 AliView Prototype (AgGrid)")
     
     if not HAS_AGGRID:
-        st.error("`streamlit-aggrid` library is missing. Please run `pip install streamlit-aggrid`.")
+        st.error(f"`streamlit-aggrid` library is missing. Please run `pip install streamlit-aggrid`.\nError detail: {IMPORT_ERR}")
         return
 
     st.info("Performance test using AgGrid + Client-side JS Rendering.")
