@@ -34,75 +34,86 @@ def alignment_to_matrix(df):
                 
     return matrix, ids
 
-def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=False, show_consensus=False, diff_mode=False):
-    """Plotlyでヒートマップを描画"""
+from plotly.subplots import make_subplots
+
+def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=False, show_consensus_row=False, diff_mode=False):
+    """Plotlyでヒートマップとコンセンサスバーを描画"""
     if matrix is None: return None
     
     # 逆マッピング
     int_to_char = {0: '-', 1: 'A', 2: 'T', 3: 'G', 4: 'C', 5: 'N'}
     
-    # コンセンサス計算 (単純な多数決)
-    # axis=0 (列) ごとに最頻値を求める
-    # 0(Gap)も含めて多数決をとるか、Gap無視するか？
-    # ここではGapも含めて単純多数決とする（視覚的なコンセンサスラインなので）
-    consensus_row = []
+    # コンセンサス計算
+    seq_len = matrix.shape[1]
+    consensus_indices = []
+    consensus_scores = []
+    
     if matrix.size > 0:
-        for col in range(matrix.shape[1]):
-            counts = np.bincount(matrix[:, col], minlength=6)
+        for col in range(seq_len):
+            col_data = matrix[:, col]
+            counts = np.bincount(col_data, minlength=6)
+            # Gap(0)やN(5)を除外して多数決を取るべきか？
+            # ここではGapも含めて計算するが、バーの高さは「最大頻度 / 総数」とする
+            total = len(col_data)
             mode_val = counts.argmax()
-            consensus_row.append(mode_val)
-    consensus_row = np.array(consensus_row, dtype=np.int8)
+            score = counts[mode_val] / total if total > 0 else 0
+            
+            consensus_indices.append(mode_val)
+            consensus_scores.append(score)
+            
+    consensus_row = np.array(consensus_indices, dtype=np.int8)
 
+    # プロット用データ
     plot_matrix = matrix.copy()
     plot_ids = list(ids)
 
-    # コンセンサス行追加
-    if show_consensus:
+    # Heatmap上のコンセンサス行（オプション）
+    if show_consensus_row:
         plot_matrix = np.vstack([consensus_row, plot_matrix])
         plot_ids = ["Consensus"] + plot_ids
 
-    # テキスト行列作成 (表示用)
+    # テキスト行列作成
     text_matrix = None
     if show_text or diff_mode:
         text_matrix = np.empty(plot_matrix.shape, dtype=object)
-        
-        # 1. 基本文字埋め
         for val, char in int_to_char.items():
             text_matrix[plot_matrix == val] = char
             
-        # 2. Diff Mode: コンセンサスと一致する場所を '*' に置換
-        # Comparison with consensus_row
         if diff_mode:
-            # 行ごとに比較
             for i in range(plot_matrix.shape[0]):
-                # コンセンサス行自体は置換しない
-                if show_consensus and i == 0: continue
-                
-                # 一致箇所マスク
+                if show_consensus_row and i == 0: continue
+                # コンセンサス配列と比較
                 match_mask = (plot_matrix[i] == consensus_row)
-                # Gap(-) 同士の一致も '*' にするか？ -> 通常はGapは空白っぽく見せたいが、
-                # ユーザー要望は「変異箇所を明瞭に」なので、一致は全部アスタリスク
-                # ただしGapは薄い色なので '*' があっても目立たないかも?
-                # ここでは一致＝'*'とする
-                text_matrix[i][match_mask] = '.' # '*'だとごちゃつくのでドット、または要望通りアスタリスク
-                # ユーザー要望: "同じところはアスタリスク"
                 text_matrix[i][match_mask] = '*'
 
-    # トリム範囲
-    shapes = []
-    if start_pos is not None and end_pos is not None:
-        max_col = plot_matrix.shape[1]
-        y_len = len(plot_ids)
-        # 左側の除外エリア
-        if start_pos > 0:
-            shapes.append(dict(type="rect", x0=0.5, y0=-0.5, x1=start_pos+0.5, y1=y_len-0.5, 
-                               fillcolor="rgba(100,100,100,0.5)", line=dict(width=0)))
-        # 右側の除外エリア
-        if end_pos < max_col:
-            shapes.append(dict(type="rect", x0=end_pos+0.5, y0=-0.5, x1=max_col+0.5, y1=y_len-0.5, 
-                               fillcolor="rgba(100,100,100,0.5)", line=dict(width=0)))
+    # --- Plotly Subplots ---
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.01,
+        row_heights=[0.15, 0.85]
+    )
 
-    # カラースケール
+    # 1. Consensus Bar Chart (Top)
+    x_axis = list(range(1, seq_len + 1))
+    
+    # バーの色: コンセンサス塩基に応じて変える
+    bar_colors = []
+    color_map = {0:'#eeeeee', 1:'#ff9999', 2:'#99ff99', 3:'#ffff99', 4:'#9999ff', 5:'#cccccc'}
+    for idx in consensus_indices:
+        bar_colors.append(color_map.get(idx, '#cccccc'))
+
+    fig.add_trace(go.Bar(
+        x=x_axis,
+        y=consensus_scores,
+        marker_color=bar_colors,
+        showlegend=False,
+        name="Consensus %",
+        hoverinfo="y+text",
+        text=[int_to_char[i] for i in consensus_indices]
+    ), row=1, col=1)
+
+    # 2. Heatmap (Bottom)
     colors = [
         [0.0, '#eeeeee'], [0.16, '#eeeeee'], # 0 (Gap)
         [0.16, '#ff9999'], [0.33, '#ff9999'], # 1 (A)
@@ -112,38 +123,53 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
         [0.83, '#cccccc'], [1.0, '#cccccc']   # 5 (Other)
     ]
     
-    # Heatmap引数
     heatmap_kwargs = dict(
         z=plot_matrix,
-        x=list(range(1, plot_matrix.shape[1] + 1)),
+        x=x_axis,
         y=plot_ids,
         colorscale=colors,
         showscale=False,
         ygap=1,
-        xgap=0,
+        xgap=1, # 正方形っぽくするためにギャップを入れる
     )
     
     if show_text:
         heatmap_kwargs["text"] = text_matrix
         heatmap_kwargs["texttemplate"] = "%{text}"
-        # フォントサイズ調整（文字が見えるように）
-        # 自動調整されるが、小さすぎると見えない
     else:
-        # Hover info用にテキストを渡しておく（Diffが表示されると便利）
-        if diff_mode:
-             heatmap_kwargs["hovertext"] = text_matrix
+        if diff_mode: heatmap_kwargs["hovertext"] = text_matrix
 
-    fig = go.Figure(data=go.Heatmap(**heatmap_kwargs))
-    
+    fig.add_trace(go.Heatmap(**heatmap_kwargs), row=2, col=1)
+
+    # トリム範囲 (Heatmap上のみ)
+    shapes = []
+    if start_pos is not None and end_pos is not None:
+        y_len = len(plot_ids)
+        # 上のバーチャートにはかけないほうがよいか？ -> Heatmapのxref='x2', yref='y2'を指定して追加
+        # しかしfig.add_shapeは全体座標かxref指定要
+        
+        # 左除外
+        if start_pos > 0:
+            fig.add_shape(type="rect", x0=0.5, y0=-0.5, x1=start_pos+0.5, y1=y_len-0.5,
+                          fillcolor="rgba(100,100,100,0.5)", line=width=0,
+                          row=2, col=1)
+        # 右除外
+        if end_pos < seq_len:
+            fig.add_shape(type="rect", x0=end_pos+0.5, y0=-0.5, x1=seq_len+0.5, y1=y_len-0.5,
+                          fillcolor="rgba(100,100,100,0.5)", line=width=0,
+                          row=2, col=1)
+
+    # Layout
     fig.update_layout(
-        title="Alignment Overview",
-        xaxis_title="Position",
-        yaxis_title="Sequence ID",
-        height=400 + (len(plot_ids) * 15), # テキストが入るので少し高く
+        title="Alignment Editor",
+        height=450 + (len(plot_ids) * 15),
         margin=dict(l=20, r=20, t=40, b=20),
-        shapes=shapes,
-        yaxis=dict(autorange="reversed")
+        dragmode='pan', # デフォルトをPan(Slide)に変更
+        yaxis2=dict(autorange="reversed") # 上から順
     )
+    
+    # 軸設定 (ズーム連動はshared_xaxes=Trueで自動)
+    fig.update_xaxes(range=[0.5, seq_len+0.5])
     
     return fig
 
