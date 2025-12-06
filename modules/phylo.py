@@ -2,57 +2,28 @@ import streamlit as st
 import pandas as pd
 import os
 import tempfile
-import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.cluster.hierarchy import linkage, fcluster
-from scipy.spatial.distance import squareform
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from io import StringIO
-from .common import find_tool_path, generate_alignment_html_from_df, run_command
 
-# --- 種区分解析 (簡易) ---
-def run_simple_asap(aligned_fasta_path, threshold=0.02):
-    seqs = list(SeqIO.parse(aligned_fasta_path, "fasta"))
-    if len(seqs) < 3: return None, "配列数が少なすぎます"
-    ids = [s.id for s in seqs]
-    max_len = max(len(s.seq) for s in seqs)
-    matrix = []
-    for s in seqs:
-        seq_arr = np.array(list(str(s.seq).upper().ljust(max_len, '-')))
-        matrix.append(seq_arr)
-    matrix = np.array(matrix)
-    
-    def p_dist(s1, s2):
-        valid = (s1 != '-') & (s2 != '-') & (s1 != 'N') & (s2 != 'N')
-        if np.sum(valid) == 0: return 0.0
-        diff = (s1[valid] != s2[valid])
-        return np.sum(diff) / np.sum(valid)
+# モジュール分割した機能をインポート
+from modules.common import find_tool_path, generate_alignment_html_from_df, run_command
+from modules.phylo_logic import run_simple_asap_logic
+from modules.phylo_editor import open_alignment_editor
 
-    n = len(seqs)
-    dist_matrix = np.zeros((n, n))
-    for i in range(n):
-        for j in range(i+1, n):
-            d = p_dist(matrix[i], matrix[j])
-            dist_matrix[i, j] = dist_matrix[j, i] = d
-            
-    Z = linkage(squareform(dist_matrix), method='average')
-    clusters = fcluster(Z, t=threshold, criterion='distance')
-    result_df = pd.DataFrame({"ID": ids, "Cluster": clusters}).sort_values("Cluster")
-    return result_df, dist_matrix
-
-# --- メイン ---
 def app_phylo():
     st.header("🌳 PhyloPipeline Pro")
     st.info("MAFFT → (trimAl) → 編集 → IQ-TREE + 種区分解析")
 
-    # ツールパス探索 (見つからなければコマンド名そのままを使用)
+    # --- ツールパス設定 ---
     mafft_def = find_tool_path("mafft") or "mafft"
     trimal_def = find_tool_path("trimal") or "trimal"
     iqtree_def = find_tool_path("iqtree") or find_tool_path("iqtree2") or "iqtree2"
     
+    # --- ツール詳細設定 ---
     with st.expander("🔧 ツール詳細設定 (Tool Settings)", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -74,31 +45,21 @@ def app_phylo():
             model_sel_ui = st.selectbox("Model", model_list, key="i_model_sel")
             model_str = "" if "Auto" in model_sel_ui else model_sel_ui
 
+    # --- ステート初期化 ---
     if 'phylo_step' not in st.session_state: st.session_state.phylo_step = 1
     if 'phylo_aligned_df' not in st.session_state: st.session_state.phylo_aligned_df = None
-    if 'show_dots_mode' not in st.session_state: st.session_state.show_dots_mode = False
-
+    
+    # --- ファイルアップロード ---
     uploaded_file = st.file_uploader("FASTAファイルをアップロード", type=["fasta", "fas", "fa"], key="phylo_up")
 
-    # --- 編集用ダイアログ ---
-    @st.dialog("配列エディタ", width="large")
-    def open_editor():
-        st.write("配列の選択・除外")
-        show_dots = st.toggle("ドット表示", value=st.session_state.show_dots_mode)
-        st.session_state.show_dots_mode = show_dots
-        edited = st.data_editor(st.session_state.phylo_aligned_df, hide_index=True, use_container_width=True, height=400)
-        st.markdown(generate_alignment_html_from_df(edited, max_seqs=20), unsafe_allow_html=True) # 簡易表示
-        if st.button("保存して閉じる", type="primary"):
-            st.session_state.phylo_aligned_df = edited
-            st.rerun()
-
     if uploaded_file:
+        # 新規ファイル読み込み処理
         if st.session_state.get('current_phylo_file') != uploaded_file.name:
             st.session_state.phylo_step = 1
             st.session_state.current_phylo_file = uploaded_file.name
             st.session_state.phylo_aligned_df = None
             
-            # 文字コード判別
+            # 文字コード対応
             file_bytes = uploaded_file.getvalue()
             decoded = None
             for enc in ['utf-8', 'shift_jis', 'cp932', 'latin-1']:
@@ -106,14 +67,18 @@ def app_phylo():
                 except: continue
             if decoded is None: st.error("Encode Error"); st.stop()
 
-            raw_seqs = list(SeqIO.parse(StringIO(decoded), "fasta"))
-            data = [{"Include": True, "ID": s.id, "Sequence": str(s.seq)} for s in raw_seqs]
-            st.session_state.phylo_initial_df = pd.DataFrame(data)
+            try:
+                raw_seqs = list(SeqIO.parse(StringIO(decoded), "fasta"))
+                data = [{"Include": True, "ID": s.id, "Sequence": str(s.seq)} for s in raw_seqs]
+                st.session_state.phylo_initial_df = pd.DataFrame(data)
+            except Exception as e:
+                st.error(f"Error parsing FASTA: {e}")
+                st.stop()
 
-        # Step 1
+        # === Step 1: アラインメント実行 ===
         if st.session_state.phylo_step == 1:
             st.subheader("1. アラインメント実行")
-            if 'phylo_initial_df' in st.session_state and not st.session_state.phylo_initial_df.empty:
+            if 'phylo_initial_df' in st.session_state:
                 with st.expander("入力データ確認", expanded=True):
                     input_df = st.data_editor(st.session_state.phylo_initial_df, key="p_ed1", hide_index=True)
                 
@@ -128,15 +93,9 @@ def app_phylo():
                         
                         with st.spinner("Running MAFFT..."):
                             cmd = [mafft_bin, mafft_algo, "--op", mafft_op, "--ep", mafft_ep, inp]
-                            with open(out_aln, "w") as f: 
-                                res = run_command(cmd, stdout=f)
-                            
-                            if res.returncode != 0:
-                                st.error("MAFFT Error")
-                                st.code(res.stderr)
-                                # 続行不能
-                                st.stop()
-
+                            # common.pyのrun_commandを使用（エラーハンドリング付き）
+                            with open(out_aln, "w") as f: run_command(cmd, stdout=f)
+                        
                         final_aln = out_aln
                         if use_trimal:
                             trim = os.path.join(td, "trim.fa")
@@ -146,29 +105,31 @@ def app_phylo():
 
                         recs = list(SeqIO.parse(final_aln, "fasta"))
                         if not recs:
-                            st.error("結果が空です。")
-                            st.session_state.phylo_aligned_df = pd.DataFrame(columns=["Include","ID","Sequence"])
+                            st.error("アラインメント結果が空です。")
                         else:
                             st.session_state.phylo_aligned_df = pd.DataFrame([{"Include":True, "ID":s.id, "Sequence":str(s.seq)} for s in recs])
                             st.session_state.phylo_step = 2
                             st.rerun()
-            else:
-                st.error("データなし")
 
-        # Step 2
+        # === Step 2: 確認・編集・解析 ===
         elif st.session_state.phylo_step == 2:
             st.subheader("2. アラインメント確認・解析")
+            
             if st.session_state.phylo_aligned_df is None or st.session_state.phylo_aligned_df.empty:
                 st.warning("データが空です。Step 1に戻ってください。")
                 if st.button("戻る"): st.session_state.phylo_step = 1; st.rerun()
             else:
+                # 簡易プレビュー
                 st.markdown(generate_alignment_html_from_df(st.session_state.phylo_aligned_df), unsafe_allow_html=True)
                 
-                c_tools = st.columns([1,1,2])
+                # ツールバー
+                c_tools = st.columns([1, 1, 2])
                 with c_tools[0]:
-                    if st.button("🔍 エディタ", use_container_width=True): open_editor()
+                    if st.button("🔍 エディタを開く", use_container_width=True):
+                        open_alignment_editor(st.session_state.phylo_aligned_df) # モジュール呼び出し
                 with c_tools[1]:
                     if st.button("🔄 再整列", use_container_width=True):
+                        # ギャップ除去して再実行へ
                         sel = st.session_state.phylo_aligned_df[st.session_state.phylo_aligned_df["Include"]==True]
                         new_data = [{"Include":True, "ID":r["ID"], "Sequence":r["Sequence"].replace("-","")} for i,r in sel.iterrows()]
                         st.session_state.phylo_initial_df = pd.DataFrame(new_data)
@@ -178,6 +139,7 @@ def app_phylo():
                 st.divider()
                 c_iq, c_asap = st.columns(2)
                 
+                # IQ-TREE
                 with c_iq:
                     st.markdown("### 🌳 系統樹構築")
                     if st.button("Run IQ-TREE", type="primary", use_container_width=True):
@@ -199,33 +161,42 @@ def app_phylo():
                                 st.session_state.phylo_step = 3
                                 st.rerun()
 
+                # ASAP
                 with c_asap:
-                    st.markdown("### 🧬 種区分解析")
-                    asap_thresh = st.slider("Threshold (e.g. 0.02)", 0.00, 0.10, 0.02, 0.005)
-                    if st.button("Run ASAP-like", use_container_width=True):
+                    st.markdown("### 🧬 種区分解析 (ASAP-like)")
+                    asap_thresh = st.slider("Distance Threshold", 0.00, 0.10, 0.02, 0.005)
+                    if st.button("Run Analysis", use_container_width=True):
                         sel = st.session_state.phylo_aligned_df[st.session_state.phylo_aligned_df["Include"]==True]
                         with tempfile.TemporaryDirectory() as td:
                             aln = os.path.join(td, "aln_asap.fa")
                             SeqIO.write([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()], aln, "fasta")
-                            df_res, dist_mat = run_simple_asap(aln, asap_thresh)
+                            
+                            # モジュール呼び出し
+                            df_res, dist_mat = run_simple_asap_logic(aln, asap_thresh)
+                            
                             if df_res is not None:
                                 st.session_state.asap_res = df_res
                                 st.session_state.asap_dist = dist_mat
                                 st.session_state.phylo_step = 3
                                 st.rerun()
-                            else: st.error(dist_mat)
+                            else:
+                                st.error(dist_mat)
 
-        # Step 3
+        # === Step 3: 結果 ===
         elif st.session_state.phylo_step == 3:
             st.subheader("3. 解析結果")
             t1, t2 = st.tabs(["IQ-TREE", "ASAP"])
+            
             with t1:
                 if 'ptree' in st.session_state:
                     st.success("Finished!")
                     c1, c2 = st.columns(2)
-                    c1.download_button("Treefile", st.session_state.ptree, "phylo.treefile")
-                    c2.download_button("Report", st.session_state.preport, "report.iqtree")
+                    c1.download_button("📥 Treefile", st.session_state.ptree, "phylo.treefile")
+                    c2.download_button("📄 Report", st.session_state.preport, "report.iqtree")
                     with st.expander("Log"): st.code(st.session_state.get('plog'))
+                else:
+                    st.info("IQ-TREE results not available.")
+
             with t2:
                 if 'asap_res' in st.session_state:
                     st.success("Finished!")
@@ -235,5 +206,8 @@ def app_phylo():
                         sns.heatmap(st.session_state.asap_dist, ax=ax, cmap="viridis")
                         st.pyplot(fig)
                     csv = st.session_state.asap_res.to_csv(index=False).encode('utf-8')
-                    st.download_button("Download CSV", csv, "species.csv")
-            if st.button("最初から", key="p_rst"): st.session_state.phylo_step=1; st.rerun()
+                    st.download_button("📥 Download CSV", csv, "species.csv")
+                else:
+                    st.info("ASAP results not available.")
+            
+            if st.button("最初からやり直す", key="p_rst"): st.session_state.phylo_step=1; st.rerun()
