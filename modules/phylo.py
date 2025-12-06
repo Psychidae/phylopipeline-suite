@@ -76,7 +76,8 @@ def app_phylo():
             st.markdown("#### MAFFT")
             mafft_bin = st.text_input("Path", value=mafft_def, key="m_path")
             mafft_algo = st.selectbox("Algo", ["--auto", "--linsi", "--fftnsi"], key="m_algo")
-            mafft_op = st.text_input("Op", value="1.53", key="m_op")
+            mafft_op = st.text_input("Op (Open)", value="1.53", key="m_op")
+            mafft_ep = st.text_input("Ep (Extend)", value="0.0", key="m_ep") # ここを追加しました
         with c2:
             st.markdown("#### trimAl")
             trimal_bin = st.text_input("Path", value=trimal_def, key="t_path")
@@ -127,10 +128,9 @@ def app_phylo():
             st.session_state.current_phylo_file = uploaded_file.name
             st.session_state.phylo_aligned_df = None
             
-            # 【修正】文字コード自動判別
+            # 文字コード自動判別
             file_bytes = uploaded_file.getvalue()
             decoded_string = None
-            # UTF-8 -> Shift-JIS -> Latin-1 の順で試行
             for enc in ['utf-8', 'shift_jis', 'cp932', 'latin-1']:
                 try:
                     decoded_string = file_bytes.decode(enc)
@@ -173,6 +173,7 @@ def app_phylo():
                         SeqIO.write([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()], inp, "fasta")
                         
                         with st.spinner("Running MAFFT..."):
+                            # 修正: mafft_ep を引数に追加
                             cmd = [mafft_bin, mafft_algo, "--op", mafft_op, "--ep", mafft_ep, inp]
                             with open(out_aln, "w") as f: run_command(cmd, stdout=f)
                         
