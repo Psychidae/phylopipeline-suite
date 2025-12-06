@@ -118,9 +118,12 @@ def app_phylo():
                         SeqIO.write([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()], inp, "fasta")
                         
                         with st.spinner("Running MAFFT..."):
-                            cmd = [mafft_bin, mafft_algo, "--op", mafft_op, "--ep", mafft_ep, inp]
-                            # common.pyのrun_commandを使用（エラーハンドリング付き）
-                            with open(out_aln, "w") as f: run_command(cmd, stdout=f)
+                            cmd = [mafft_bin, "--quiet", mafft_algo, "--op", mafft_op, "--ep", mafft_ep, inp]
+                            # stderrをPIPEにリダイレクトして /dev/stderr への書き込みエラーを回避
+                            with open(out_aln, "w") as f: 
+                                res = run_command(cmd, stdout=f, stderr=subprocess.PIPE)
+                                if res.returncode != 0:
+                                     st.error(f"MAFFT Error: {res.stderr}")
                         
                         final_aln = out_aln
                         if use_trimal:
@@ -129,13 +132,20 @@ def app_phylo():
                             run_command(cmd_t)
                             final_aln = trim
 
-                        recs = list(SeqIO.parse(final_aln, "fasta"))
-                        if not recs:
-                            st.error("アラインメント結果が空です。")
+                        # check file size
+                        if os.path.getsize(final_aln) == 0:
+                             st.error("アラインメント結果が空です。MAFFTが正しく実行されなかった可能性があります。")
+                             if 'res' in locals() and res.stderr:
+                                 with st.expander("MAFFT Error Log"):
+                                     st.code(res.stderr)
                         else:
-                            st.session_state.phylo_aligned_df = pd.DataFrame([{"Include":True, "ID":s.id, "Sequence":str(s.seq)} for s in recs])
-                            st.session_state.phylo_step = 2
-                            st.rerun()
+                            recs = list(SeqIO.parse(final_aln, "fasta"))
+                            if not recs:
+                                st.error("アラインメント結果のパースに失敗しました。")
+                            else:
+                                st.session_state.phylo_aligned_df = pd.DataFrame([{"Include":True, "ID":s.id, "Sequence":str(s.seq)} for s in recs])
+                                st.session_state.phylo_step = 2
+                                st.rerun()
             else:
                 st.error("データなし")
 
