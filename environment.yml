@@ -4,18 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.10
+  - pip
   - mafft
   - iqtree
   - trimal
-  - pip
-  - pip:
-    - streamlit
-    - pandas
-    - plotly
-    - biopython
-    - openpyxl
-    - scikit-learn
-    - scipy
-    - seaborn
-    - matplotlib
-    - streamlit-aggrid
