@@ -82,6 +82,8 @@ def app_downloader():
                                 lat_lon = ""
                                 collection_date = ""
                                 collector = ""
+                                isolation_source = ""
+                                geo_loc_name = ""
                                 
                                 features = rec.get("GBSeq_feature-table", [])
                                 for feat in features:
@@ -92,6 +94,8 @@ def app_downloader():
                                             if q["GBQualifier_name"] == "lat_lon": lat_lon = q["GBQualifier_value"]
                                             if q["GBQualifier_name"] == "collection_date": collection_date = q["GBQualifier_value"]
                                             if q["GBQualifier_name"] == "collected_by": collector = q["GBQualifier_value"]
+                                            if q["GBQualifier_name"] == "isolation_source": isolation_source = q["GBQualifier_value"]
+                                            if q["GBQualifier_name"] == "geo_loc_name": geo_loc_name = q["GBQualifier_value"]
 
                                 # FASTA用レコード作成
                                 clean_sp = sp.replace(" ", "_")
@@ -100,11 +104,14 @@ def app_downloader():
                                 
                                 # メタデータリスト追加
                                 metadata_list.append({
+                                    "Sequence_ID": seq_id,
                                     "Species": sp,
                                     "Accession": accession,
                                     "Definition": definition,
                                     "Length": length,
                                     "Country": country,
+                                    "Geo_Loc_Name": geo_loc_name,
+                                    "Isolation_Source": isolation_source,
                                     "Lat_Lon": lat_lon,
                                     "Collection_Date": collection_date,
                                     "Collector": collector,

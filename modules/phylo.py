@@ -11,7 +11,7 @@ from io import StringIO
 
 # モジュール分割した機能をインポート
 from modules.common import find_tool_path, generate_alignment_html_from_df, run_command
-from modules.phylo_logic import run_simple_asap_logic
+from modules.phylo_logic import run_asap_scan, get_partition_by_threshold, generate_methods_log
 from modules.phylo_editor import open_alignment_editor
 
 def app_phylo():
@@ -24,26 +24,52 @@ def app_phylo():
     iqtree_def = find_tool_path("iqtree") or find_tool_path("iqtree2") or "iqtree2"
     
     # --- ツール詳細設定 ---
+    # --- ツール詳細設定 ---
     with st.expander("🔧 ツール詳細設定 (Tool Settings)", expanded=False):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("#### MAFFT")
-            mafft_bin = st.text_input("Path", value=mafft_def, key="m_path")
-            mafft_algo = st.selectbox("Algo", ["--auto", "--linsi", "--fftnsi"], key="m_algo")
-            mafft_op = st.text_input("Op", value="1.53", key="m_op")
-            mafft_ep = st.text_input("Ep", value="0.0", key="m_ep")
-        with c2:
-            st.markdown("#### trimAl")
-            trimal_bin = st.text_input("Path", value=trimal_def, key="t_path")
+        t_mafft, t_trimal, t_iqtree = st.tabs(["MAFFT", "trimAl", "IQ-TREE"])
+        
+        with t_mafft:
+            st.markdown("#### MAFFT Settings")
+            c1, c2 = st.columns(2)
+            mafft_bin = c1.text_input("Path", value=mafft_def, key="m_path")
+            mafft_algo = c2.selectbox("Algo", ["--auto", "--linsi", "--fftnsi"], key="m_algo")
+            c3, c4 = st.columns(2)
+            mafft_op = c3.text_input("Op (Gap Open)", value="1.53", key="m_op")
+            mafft_ep = c4.text_input("Ep (Offset)", value="0.0", key="m_ep")
+            
+        with t_trimal:
+            st.markdown("#### trimAl Settings")
             use_trimal = st.checkbox("Use trimAl", value=False, key="t_use")
-            trimal_met = st.selectbox("Method", ["automated1", "gappyout"], key="t_met")
-        with c3:
-            st.markdown("#### IQ-TREE")
+            c1, c2 = st.columns(2)
+            trimal_bin = c1.text_input("Path", value=trimal_def, key="t_path")
+            trimal_met = c2.selectbox("Method", ["automated1", "gappyout"], key="t_met")
+            
+        with t_iqtree:
+            st.markdown("#### IQ-TREE Settings")
             iqtree_bin = st.text_input("Path", value=iqtree_def, key="i_path")
             boot = st.number_input("Bootstrap", 1000, step=100, key="i_boot")
-            model_list = ["Auto (ModelFinder)", "GTR+G", "HKY+G", "TIM2+I+G", "GTR+I+G"]
-            model_sel_ui = st.selectbox("Model", model_list, key="i_model_sel")
-            model_str = "" if "Auto" in model_sel_ui else model_sel_ui
+            
+            # Phase 2: Outgroup Selection
+            st.markdown("##### Outgroup")
+            outgroup_list = ["(None)"]
+            if st.session_state.phylo_aligned_df is not None:
+                # Include=Trueのもののみ
+                sel_og = st.session_state.phylo_aligned_df[st.session_state.phylo_aligned_df["Include"]==True]
+                outgroup_list += sel_og["ID"].tolist()
+            
+            outgroup_sel = st.selectbox("Select Outgroup", outgroup_list, key="i_outgroup")
+            
+            st.markdown("##### Model Selection")
+            model_list = ["Auto (ModelFinder)", "GTR+G", "HKY+G", "TIM2+I+G", "GTR+I+G", "Custom"]
+            model_sel_ui = st.radio("Model", model_list, key="i_model_sel", horizontal=True)
+            
+            model_str = ""
+            if "Auto" in model_sel_ui:
+                model_str = ""
+            elif model_sel_ui == "Custom":
+                model_str = st.text_input("Enter Model String (e.g. TVM+F+R3)", value="", key="i_model_custom")
+            else:
+                model_str = model_sel_ui
 
     # --- ステート初期化 ---
     if 'phylo_step' not in st.session_state: st.session_state.phylo_step = 1
@@ -152,6 +178,8 @@ def app_phylo():
                             
                             cmd = [iqtree_bin, "-s", aln, "-bb", str(boot), "-pre", os.path.join(td,"out"), "-nt", "AUTO"]
                             if model_str: cmd.extend(["-m", model_str])
+                            if outgroup_sel and outgroup_sel != "(None)":
+                                cmd.extend(["-o", outgroup_sel])
                             
                             with st.spinner("Running IQ-TREE..."):
                                 res = run_command(cmd)
@@ -160,29 +188,49 @@ def app_phylo():
                                 if os.path.exists(os.path.join(td,"out.iqtree")):
                                     with open(os.path.join(td,"out.iqtree")) as f: st.session_state.preport = f.read()
                                 st.session_state.plog = res.stdout
+                                
+                                # Phase 2: Generate Log
+                                params = {
+                                    "Tool": "IQ-TREE",
+                                    "Bootstrap": boot,
+                                    "Model": model_str if model_str else "Auto",
+                                    "Outgroup": outgroup_sel,
+                                    "MAFFT Algo": mafft_algo,
+                                    "trimAl": "Yes" if use_trimal else "No"
+                                }
+                                tools = {"IQ-TREE": iqtree_bin, "MAFFT": mafft_bin} 
+                                st.session_state.method_log = generate_methods_log(tools, params)
+                                
                                 st.session_state.phylo_step = 3
                                 st.rerun()
 
                 # ASAP
                 with c_asap:
                     st.markdown("### 🧬 種区分解析 (ASAP-like)")
-                    asap_thresh = st.slider("Distance Threshold", 0.00, 0.10, 0.02, 0.005)
-                    if st.button("Run Analysis", use_container_width=True):
+                    st.info("閾値をスキャンして最適な種区分を探します。")
+                    
+                    # Phase 2: Distance Model Selection
+                    dist_model = st.selectbox("Distance Model", ["p-dist", "k2p"], index=1, help="K2P is recommended for barcoding")
+
+                    if st.button("Run ASAP Scan", use_container_width=True):
                         sel = st.session_state.phylo_aligned_df[st.session_state.phylo_aligned_df["Include"]==True]
                         with tempfile.TemporaryDirectory() as td:
                             aln = os.path.join(td, "aln_asap.fa")
                             SeqIO.write([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()], aln, "fasta")
                             
                             # モジュール呼び出し
-                            df_res, dist_mat = run_simple_asap_logic(aln, asap_thresh)
+                            df_scan, dist_mat, Z, ids = run_asap_scan(aln, model=dist_model)
                             
-                            if df_res is not None:
-                                st.session_state.asap_res = df_res
+                            if df_scan is not None:
+                                st.session_state.asap_scan = df_scan
                                 st.session_state.asap_dist = dist_mat
+                                st.session_state.asap_Z = Z
+                                st.session_state.asap_ids = ids
                                 st.session_state.phylo_step = 3
                                 st.rerun()
                             else:
-                                st.error(dist_mat)
+                                st.error(ids) # idsがエラーメッセージになる仕様
+
 
         # === Step 3: 結果 ===
         elif st.session_state.phylo_step == 3:
@@ -192,23 +240,53 @@ def app_phylo():
             with t1:
                 if 'ptree' in st.session_state:
                     st.success("Finished!")
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns(3)
                     c1.download_button("📥 Treefile", st.session_state.ptree, "phylo.treefile")
                     c2.download_button("📄 Report", st.session_state.preport, "report.iqtree")
+                    
+                    if 'method_log' in st.session_state:
+                         c3.download_button("📝 Methods Log", st.session_state.method_log, "methods_log.txt")
+                    
                     with st.expander("Log"): st.code(st.session_state.get('plog'))
                 else:
                     st.info("IQ-TREE results not available.")
 
             with t2:
-                if 'asap_res' in st.session_state:
-                    st.success("Finished!")
-                    st.dataframe(st.session_state.asap_res, use_container_width=True)
+                if 'asap_scan' in st.session_state:
+                    st.success("ASAP Scan Finished!")
+                    
+                    c_scan, c_det = st.columns([1, 1.5])
+                    with c_scan:
+                        st.subheader("1. Select Threshold")
+                        st.caption("スキャン結果から閾値を選択してください。")
+                        
+                        # スキャン結果テーブル
+                        st.dataframe(st.session_state.asap_scan, use_container_width=True, hide_index=True)
+                        
+                        # 閾値選択スライダー（スキャン範囲に基づき設定）
+                        min_t = st.session_state.asap_scan["Threshold (Distance)"].min()
+                        max_t = st.session_state.asap_scan["Threshold (Distance)"].max()
+                        sel_t = st.slider("Select Threshold", float(min_t), float(max_t), 0.02, 0.005)
+                    
+                    with c_det:
+                        st.subheader("2. Partition Result")
+                        # 選択された閾値でパーティション取得
+                        Z = st.session_state.asap_Z
+                        ids = st.session_state.asap_ids
+                        res_df = get_partition_by_threshold(Z, ids, sel_t)
+                        
+                        st.write(f"**Threshold: {sel_t}** -> **{len(res_df['Cluster'].unique())} Species**")
+                        st.dataframe(res_df, use_container_width=True, hide_index=True)
+                        
+                        csv = res_df.to_csv(index=False).encode('utf-8')
+                        st.download_button("📥 Download CSV", csv, f"species_t{sel_t}.csv")
+
+                    st.divider()
                     if 'asap_dist' in st.session_state:
+                        st.subheader("Distance Matrix")
                         fig, ax = plt.subplots(figsize=(8, 6))
                         sns.heatmap(st.session_state.asap_dist, ax=ax, cmap="viridis")
                         st.pyplot(fig)
-                    csv = st.session_state.asap_res.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Download CSV", csv, "species.csv")
                 else:
                     st.info("ASAP results not available.")
             

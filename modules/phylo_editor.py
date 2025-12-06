@@ -22,6 +22,7 @@ def open_alignment_editor(initial_df):
         hide_index=True, 
         use_container_width=True,
         height=400,
+        num_rows="dynamic",
         column_config={
             "Include": st.column_config.CheckboxColumn("有効", width="small"),
             "ID": st.column_config.TextColumn("ID", width="medium"),
