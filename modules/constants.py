@@ -1,4 +1,3 @@
-# 定数定義
 
 IUPAC_CODES = {
     'A': 'Adenine', 'C': 'Cytosine', 'G': 'Guanine', 'T': 'Thymine', '-': 'Gap',
