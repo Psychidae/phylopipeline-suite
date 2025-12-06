@@ -151,12 +151,12 @@ def plot_alignment_heatmap(matrix, ids, start_pos=None, end_pos=None, show_text=
         # 左除外
         if start_pos > 0:
             fig.add_shape(type="rect", x0=0.5, y0=-0.5, x1=start_pos+0.5, y1=y_len-0.5,
-                          fillcolor="rgba(100,100,100,0.5)", line=width=0,
+                          fillcolor="rgba(100,100,100,0.5)", line=dict(width=0),
                           row=2, col=1)
         # 右除外
         if end_pos < seq_len:
             fig.add_shape(type="rect", x0=end_pos+0.5, y0=-0.5, x1=seq_len+0.5, y1=y_len-0.5,
-                          fillcolor="rgba(100,100,100,0.5)", line=width=0,
+                          fillcolor="rgba(100,100,100,0.5)", line=dict(width=0),
                           row=2, col=1)
 
     # Layout
