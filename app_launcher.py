@@ -16,16 +16,26 @@ st.set_page_config(page_title="PhyloPipeline Suite Ultimate", layout="wide", pag
 st.sidebar.title("🧬 PhyloPipeline")
 st.sidebar.caption("Integrated Analysis Suite")
 
-# Replaced the old app_mode radio and if/elif block with the new structure
-tool_mode = st.sidebar.radio(
-    "Select Tool:",
-    ("PhyloPipeline Pro", "Alignment Viewer", "AliView Prototype", "Settings", "Help / Walkthrough")
+app_mode = st.sidebar.radio(
+    "Select Mode",
+    ["1. Waveform Validator (波形解析)",
+     "2. GenBank Downloader (配列取得)",
+     "3. PhyloPipeline (系統解析)",
+     "4. Alignment Viewer (アライメント表示)",
+     "5. AliView Prototype (実験機能)"]
 )
 
 st.sidebar.markdown("---")
 
 # --- モード切替 ---
-if tool_mode == "PhyloPipeline Pro":
+if "Waveform Validator" in app_mode:
+    app_waveform_main()
+elif "GenBank Downloader" in app_mode:
+    app_downloader()
+elif "PhyloPipeline" in app_mode:
     app_phylo()
-elif tool_mode == "Alignment Viewer":
+elif "Alignment Viewer" in app_mode:
     app_viewer()
+elif "AliView Prototype" in app_mode:
+    from modules.app_aliview import app_aliview
+    app_aliview()
