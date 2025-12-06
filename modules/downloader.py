@@ -6,52 +6,46 @@ from io import StringIO
 
 def app_downloader():
     st.header("🧬 GenBank Sequence Downloader")
-    st.info("CSVファイル（種名リスト）から配列を一括取得します。")
+    st.info("CSVファイルから配列を一括取得")
 
-    col1, col2 = st.columns([1, 2])
-    with col1:
+    c1, c2 = st.columns([1, 2])
+    with c1:
         st.subheader("設定")
-        email = st.text_input("Email (必須)", placeholder="email@example.com")
-        target_gene = st.text_input("ターゲット遺伝子", value="Internal Transcribed Spacer")
-        db_select = st.selectbox("データベース", ["nucleotide", "protein"], index=0)
-        max_ret = st.number_input("取得数", 1, 100, 1)
+        email = st.text_input("Email", placeholder="email@example.com")
+        gene = st.text_input("Gene", value="Internal Transcribed Spacer")
+        db = st.selectbox("DB", ["nucleotide", "protein"])
+        ret = st.number_input("Max Count", 1, 100, 1)
 
-    with col2:
-        uploaded_file = st.file_uploader("種名リスト (CSV/TXT)", type=["csv", "txt"])
-        
-        if uploaded_file and email:
-            if st.button("🚀 ダウンロード開始"):
+    with c2:
+        up = st.file_uploader("List (CSV/TXT)", type=["csv", "txt"])
+        if up and email:
+            if st.button("Download"):
                 try:
-                    df = pd.read_csv(uploaded_file, header=None)
-                    species_list = df[0].tolist()
+                    df = pd.read_csv(up, header=None)
+                    sps = df[0].tolist()
                     Entrez.email = email
-                    fasta_records = []
-                    log_text = ""
-                    prog = st.progress(0)
-                    
-                    for i, sp in enumerate(species_list):
-                        prog.progress((i + 1) / len(species_list))
-                        term = f'"{sp}"[Organism] AND {target_gene}[All Fields]' 
+                    recs = []
+                    log = ""
+                    bar = st.progress(0)
+                    for i, sp in enumerate(sps):
+                        bar.progress((i+1)/len(sps))
                         try:
-                            handle = Entrez.esearch(db=db_select, term=term, retmax=max_ret)
-                            record = Entrez.read(handle)
-                            if record["IdList"]:
-                                handle = Entrez.efetch(db=db_select, id=record["IdList"], rettype="fasta", retmode="text")
-                                for r in SeqIO.parse(StringIO(handle.read()), "fasta"):
+                            h = Entrez.esearch(db=db, term=f'"{sp}"[Organism] AND {gene}[All Fields]', retmax=ret)
+                            ids = Entrez.read(h)["IdList"]
+                            if ids:
+                                h2 = Entrez.efetch(db=db, id=ids, rettype="fasta", retmode="text")
+                                for r in SeqIO.parse(StringIO(h2.read()), "fasta"):
                                     r.description = f"{sp} | {r.id}"
                                     r.id = f"{sp.replace(' ', '_')}_{r.id}"
-                                    fasta_records.append(r)
-                                log_text += f"✅ {sp}: OK\n"
-                            else:
-                                log_text += f"❌ {sp}: None\n"
+                                    recs.append(r)
+                                log += f"✅ {sp}: OK\n"
+                            else: log += f"❌ {sp}: None\n"
                             time.sleep(0.5)
-                        except Exception as e:
-                            log_text += f"⚠️ {sp}: Error {e}\n"
-                    
-                    st.text_area("Log", log_text)
-                    if fasta_records:
+                        except Exception as e: log += f"⚠️ {sp}: {e}\n"
+                    st.text_area("Log", log)
+                    if recs:
                         out = StringIO()
-                        SeqIO.write(fasta_records, out, "fasta")
-                        st.download_button("📥 Download FASTA", out.getvalue(), "genbank_seqs.fasta")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                        SeqIO.write(recs, out, "fasta")
+                        st.download_button("Download FASTA", out.getvalue(), "seqs.fasta")
+                except Exception as e: st.error(e)
+        elif up: st.warning("Enter Email")
