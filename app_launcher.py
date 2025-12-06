@@ -1,3 +1,4 @@
+# app_launcher.py
 import streamlit as st
 from modules.downloader import app_downloader
 from modules.phylo import app_phylo
@@ -18,9 +19,8 @@ app_mode = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("© 2025 PhyloPipeline Team")
 
-# --- アプリ切り替え ---
+# --- モード切替実行 ---
 if "Waveform" in app_mode:
     app_waveform_main()
 elif "Downloader" in app_mode:
