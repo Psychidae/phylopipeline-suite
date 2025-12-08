@@ -232,15 +232,29 @@ def app_waveform_main():
                     placeholder="Select a stop codon..."
                 )
                 
-                # Show Suggestions for Selected Stop
-                if st.session_state.wf_stop_sel:
-                    with st.expander("💡 Fix Suggestions", expanded=True):
-                        # Get pos from option map
-                        mid_idx = stop_codon_options[st.session_state.wf_stop_sel]
+                # Show Suggestions based on Current Cursor Position
+                current_stop_target = None
+                current_stop_frame = None
+                
+                # Scan all frames to see if current pos is inside a stop codon
+                for frame in [1, 2, 3]:
+                    aa_map = calculate_translation_map(cons_data, tid, frame)
+                    stops = [a for a in aa_map if a["is_stop"]]
+                    for s in stops:
+                        mid_idx = s["seq_idx"]
+                        # Check if tpos is within this codon (mid-1 to mid+1)
+                        if abs(tpos - mid_idx) <= 1:
+                            current_stop_target = mid_idx
+                            current_stop_frame = frame
+                            break
+                    if current_stop_target is not None:
+                        break
+                
+                if current_stop_target is not None:
+                    with st.expander(f"💡 Fix Suggestions (Frame +{current_stop_frame})", expanded=True):
+                        mid_idx = current_stop_target
                         
                         # Get exact codon from consensus
-                        # mid_idx is center. codon is mid_idx-1, mid_idx, mid_idx+1
-                        # Check bounds
                         if 0 < mid_idx < len(cons_data)-1:
                             codon_bases = [
                                 cons_data[mid_idx-1]["base"],
@@ -249,7 +263,7 @@ def app_waveform_main():
                             ]
                             codon_str = "".join(codon_bases).upper()
                             
-                            st.write(f"Current Codon: **{codon_str}** (at {mid_idx+1})")
+                            st.write(f"selected codon: **{codon_str}** (at {mid_idx+1})")
                             
                             if "N" in codon_str or "-" in codon_str:
                                 st.warning("Codon contains gaps or N.")
@@ -259,31 +273,22 @@ def app_waveform_main():
                                 
                                 if fixes:
                                     st.caption("Single-base changes that resolve this stop:")
-                                    
-                                    # Create small table-like buttons or text
-                                    # Maybe highlight if mutation matches a specific mismatch track?
-                                    # That's complex logic (check all tracks). For now just show options.
-                                    
                                     cols_fix = st.columns(4)
                                     for i, fix in enumerate(fixes):
                                         c = cols_fix[i % 4]
-                                        # codon relative pos 0,1,2 -> absolute pos mid_idx-1+0...
                                         abs_pos = mid_idx - 1 + fix['pos']
-                                        
-                                        # Check if this position has known mismatches (from mms list)
                                         is_mm = abs_pos in mms
                                         
                                         msg = f"{fix['from']}➔**{fix['to']}** ({fix['aa']})"
-                                        if is_mm: msg += " ⚠️" # Indicate this pos is disputed
+                                        if is_mm: msg += " ⚠️" 
                                         
                                         if c.button(msg, key=f"fix_{mid_idx}_{i}", help=f"Mutate Pos {abs_pos+1} to {fix['to']}"):
-                                            # Apply Fix Action
                                             st.session_state.all_contigs[sel]["consensus"][abs_pos]["base"] = fix['to'].lower()
-                                            st.session_state.wf_pos = abs_pos # Jump there
-                                            st.session_state.wf_k = "" # Clear input
+                                            st.session_state.wf_pos = abs_pos
+                                            st.session_state.wf_k = ""
                                             st.rerun()
                                 else:
-                                    st.info("No single-base mutation resolves this stop (or invalid generic code).")
+                                    st.info("No single-base mutation resolves this stop.")
 
         st.divider()
         cd, cn = st.columns([1, 2])
