@@ -17,6 +17,12 @@ def app_downloader():
         max_ret = st.number_input("1種あたりの最大取得数", 1, 100, 1)
         
         st.markdown("---")
+        st.caption("品質フィルタ (推奨)")
+        min_len = st.number_input("最小配列長 (bp)", 0, 10000, 500, help="これより短い配列は除外します")
+        max_n_ratio = st.slider("最大N含有率 (%)", 0.0, 100.0, 5.0, help="不明な塩基(N)がこれ以上含まれる場合は除外")
+        exclude_unverified = st.checkbox("未検証/予測配列を除外", value=True, help="'UNVERIFIED' や 'PREDICTED' を含む配列を除外")
+        
+        st.markdown("---")
         st.caption("絞り込みオプション (任意)")
         filter_author = st.text_input("登録者/著者名", placeholder="Smith J", help="この著者が関わった配列のみ取得")
         filter_journal = st.text_input("論文/雑誌名", placeholder="Nature", help="この雑誌/論文に含まれる配列のみ取得")
@@ -63,7 +69,7 @@ def app_downloader():
                             
                         try:
                             # 1. ID検索
-                            handle = Entrez.esearch(db="nucleotide", term=term, retmax=max_ret)
+                            handle = Entrez.esearch(db="nucleotide", term=term, retmax=max_ret * 3) # フィルタで減る分を見越して多めに取得
                             record = Entrez.read(handle)
                             id_list = record["IdList"]
                             
@@ -72,17 +78,47 @@ def app_downloader():
                                 continue
                             
                             # 2. メタデータ取得 (GB形式XML)
-                            # FASTAとメタデータを別々に取るのは効率が悪いので、GBファイルを取得してパースする
                             handle_gb = Entrez.efetch(db="nucleotide", id=id_list, rettype="gb", retmode="xml")
                             gb_records = Entrez.parse(handle_gb)
                             
                             count = 0
+                            skipped_counts = {"len": 0, "n_ratio": 0, "quality": 0}
+                            
                             for rec in gb_records:
+                                if count >= max_ret: break
+                                
                                 # 基本情報
                                 accession = rec.get("GBSeq_primary-accession", "")
                                 definition = rec.get("GBSeq_definition", "")
-                                length = rec.get("GBSeq_length", "")
+                                # Length is int logic
+                                try:
+                                    length = int(rec.get("GBSeq_length", 0))
+                                except:
+                                    length = 0
+                                    
                                 sequence = rec.get("GBSeq_sequence", "").upper()
+                                
+                                # --- 品質フィルタリング ---
+                                # 1. 長さチェック
+                                if length < min_len:
+                                    skipped_counts["len"] += 1
+                                    continue
+                                
+                                # 2. N含有率チェック
+                                n_count = sequence.count("N")
+                                n_ratio = (n_count / length * 100) if length > 0 else 0
+                                if n_ratio > max_n_ratio:
+                                    skipped_counts["n_ratio"] += 1
+                                    continue
+                                    
+                                # 3. 未検証除外
+                                if exclude_unverified:
+                                    def_upper = definition.upper()
+                                    if "UNVERIFIED" in def_upper or "PREDICTED" in def_upper:
+                                        skipped_counts["quality"] += 1
+                                        continue
+                                # -------------------------
+                                
                                 create_date = rec.get("GBSeq_create-date", "")
                                 update_date = rec.get("GBSeq_update-date", "")
                                 
@@ -140,11 +176,18 @@ def app_downloader():
                                     "Journal": journal,
                                     "Title": title,
                                     "Create_Date": create_date,
-                                    "Update_Date": update_date
+                                    "Update_Date": update_date,
+                                    "N_Ratio": f"{n_ratio:.1f}%"
                                 })
                                 count += 1
                                 
-                            log_text += f"✅ {sp}: {count}件取得\n"
+                            skip_msg = []
+                            if skipped_counts['len']: skip_msg.append(f"短: {skipped_counts['len']}")
+                            if skipped_counts['n_ratio']: skip_msg.append(f"低質(N): {skipped_counts['n_ratio']}")
+                            if skipped_counts['quality']: skip_msg.append(f"未検証: {skipped_counts['quality']}")
+                            
+                            skip_text = f" (除外: {', '.join(skip_msg)})" if skip_msg else ""
+                            log_text += f"✅ {sp}: {count}件取得{skip_text}\n"
                             time.sleep(0.5) # API制限回避
                             
                         except Exception as e:
