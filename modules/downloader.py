@@ -15,9 +15,25 @@ def app_downloader():
         email = st.text_input("Email (必須)", placeholder="your_email@example.com", help="NCBIの利用規約により必須です")
         target_gene = st.text_input("ターゲット遺伝子", value="COI", help="例: COI, 16S, NADH dehydrogenase subunit 1")
         max_ret = st.number_input("1種あたりの最大取得数", 1, 100, 1)
+        
+        st.markdown("---")
+        st.caption("絞り込みオプション (任意)")
+        filter_author = st.text_input("登録者/著者名", placeholder="Smith J", help="この著者が関わった配列のみ取得")
+        filter_journal = st.text_input("論文/雑誌名", placeholder="Nature", help="この雑誌/論文に含まれる配列のみ取得")
 
     with col2:
         st.subheader("リストアップロード")
+        
+        # テンプレートダウンロード
+        template_csv = "Homo sapiens\nMus musculus\nDrosophila melanogaster\n"
+        st.download_button(
+            "📥 テンプレートCSVをダウンロード",
+            template_csv,
+            "species_list_template.csv",
+            "text/csv",
+            help="種名を1行に1つ記載したCSV/TXTファイルを作成してください"
+        )
+        
         uploaded_file = st.file_uploader("種名リスト (CSV/TXT, ヘッダーなし)", type=["csv", "txt"])
         
         if uploaded_file and email:
@@ -38,8 +54,13 @@ def app_downloader():
                         prog_bar.progress((i + 1) / len(species_list))
                         status_text.text(f"Searching: {sp}...")
                         
-                        # 検索
+                        # 検索クエリ構築
                         term = f'"{sp}"[Organism] AND {target_gene}[All Fields]'
+                        if filter_author:
+                            term += f' AND {filter_author}[Author]'
+                        if filter_journal:
+                            term += f' AND {filter_journal}[Journal]'
+                            
                         try:
                             # 1. ID検索
                             handle = Entrez.esearch(db="nucleotide", term=term, retmax=max_ret)
@@ -47,7 +68,7 @@ def app_downloader():
                             id_list = record["IdList"]
                             
                             if not id_list:
-                                log_text += f"❌ {sp}: なし\n"
+                                log_text += f"❌ {sp}: なし (条件に一致するデータがありません)\n"
                                 continue
                             
                             # 2. メタデータ取得 (GB形式XML)
@@ -151,7 +172,7 @@ def app_downloader():
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
                     else:
-                        st.warning("データが見つかりませんでした。")
+                        st.warning("データが見つかりませんでした。絞り込み条件が厳しすぎる可能性があります。")
                         
                 except Exception as e:
                     st.error(f"エラーが発生しました: {e}")
