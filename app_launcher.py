@@ -12,9 +12,7 @@ app_mode = st.sidebar.radio(
     "Select Mode",
     ["1. Waveform Validator (波形解析)",
      "2. GenBank Downloader (配列取得)",
-     "3. PhyloPipeline (系統解析)",
-     "4. Alignment Viewer (アライメント表示)",
-     "5. AliView Prototype (実験機能)"]
+     "3. PhyloPipeline (系統解析)"]
 )
 
 st.sidebar.markdown("---")
@@ -40,10 +38,3 @@ elif "PhyloPipeline" in app_mode:
         app_phylo()
     except Exception as e:
         st.error(f"Failed to load PhyloPipeline: {e}")
-
-elif "Alignment Viewer" in app_mode:
-    try:
-        from modules.app_viewer import app_viewer
-        app_viewer()
-    except Exception as e:
-        st.error(f"Failed to load Alignment Viewer: {e}")
