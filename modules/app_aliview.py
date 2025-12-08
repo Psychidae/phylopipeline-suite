@@ -59,13 +59,43 @@ def app_aliview():
         overview_img = render_overview_image(alignment, width=1000, height=100, color_scheme='Default')
         st.image(overview_img, use_container_width=True, caption="Alignment Overview (Condensed)")
 
-    # --- 3. Navigation (Slider) ---
+    # --- 3. Controls (Zoom & Scroll) ---
+    st.markdown("### Controls")
+    c1, c2 = st.columns([1, 1])
+    
+    # Zoom Level (1: Far view, 10: Close up)
+    zoom_level = c1.slider("🔍 Zoom Level", min_value=1, max_value=10, value=5, help="Change character size and window width")
+    
+    # Calculate grid parameters based on zoom
+    # Zoom 10: 20 bases, 40px width, 18px font
+    # Zoom 1: 200 bases, 10px width, 0px font (color only)
+    
+    # Linear interpolation or specific steps
+    base_window_map = {
+        10: 20, 9: 30, 8: 40, 7: 50, 6: 60, 
+        5: 80, 4: 100, 3: 120, 2: 150, 1: 200
+    }
+    width_map = {
+        10: 40, 9: 35, 8: 30, 7: 25, 6: 20, 
+        5: 18, 4: 15, 3: 12, 2: 10, 1: 8
+    }
+    font_map = {
+        10: 18, 9: 16, 8: 14, 7: 12, 6: 12, 
+        5: 11, 4: 10, 3: 0, 2: 0, 1: 0
+    }
+    
+    window_size = base_window_map[zoom_level]
+    col_width = width_map[zoom_level]
+    font_size = font_map[zoom_level]
+    
     seq_len = alignment.get_alignment_length()
-    window_size = st.slider("Window Size (bases)", 20, 100, 50)
-    start_pos = st.slider("Position", 0, max(0, seq_len - window_size), 0)
+    max_start = max(0, seq_len - window_size)
+    
+    # Scroll Slider
+    start_pos = st.slider("↔️ Scroll Position", 0, max_start, 0)
     end_pos = start_pos + window_size
     
-    st.caption(f"Showing bases {start_pos+1} - {end_pos} (Total: {seq_len})")
+    st.caption(f"Showing bases **{start_pos+1}** to **{end_pos}** (Total: {seq_len})")
 
     # --- 4. Detail View (AgGrid) ---
     st.subheader("Detail View")
@@ -74,28 +104,47 @@ def app_aliview():
     
     # Configure Grid
     gb = GridOptionsBuilder.from_dataframe(df_window)
-    gb.configure_column("ID", pinned="left", width=150)
+    # ID Column Pinned and WIDER
+    gb.configure_column("ID", pinned="left", width=200, resizable=True, lockPosition=True)
     
     # JsCode for coloring
-    cell_style_jscode = JsCode("""
-    function(params) {
-        if (params.value == 'A') { return {'backgroundColor': '#FF4444', 'color': 'black', 'textAlign': 'center'}; }
-        if (params.value == 'T') { return {'backgroundColor': '#44FF44', 'color': 'black', 'textAlign': 'center'}; }
-        if (params.value == 'G') { return {'backgroundColor': '#FFD700', 'color': 'black', 'textAlign': 'center'}; }
-        if (params.value == 'C') { return {'backgroundColor': '#4444FF', 'color': 'white', 'textAlign': 'center'}; }
-        if (params.value == '-') { return {'backgroundColor': '#E0E0E0', 'color': 'black', 'textAlign': 'center'}; }
-        return {'textAlign': 'center'};
-    }
+    # Inject font-size dynamically
+    cell_style_jscode = JsCode(f"""
+    function(params) {{
+        var fontSize = '{font_size}px';
+        var color = 'black';
+        var bg = 'white';
+        
+        if (params.value == 'A') {{ bg = '#FF4444'; }}
+        else if (params.value == 'T') {{ bg = '#44FF44'; }}
+        else if (params.value == 'G') {{ bg = '#FFD700'; }}
+        else if (params.value == 'C') {{ bg = '#4444FF'; color = 'white'; }}
+        else if (params.value == '-') {{ bg = '#E0E0E0'; }}
+        
+        if ({font_size} == 0) {{ color = 'rgba(0,0,0,0)'; }} // Hide text
+        
+        return {{'backgroundColor': bg, 'color': color, 'textAlign': 'center', 'fontSize': fontSize, 'fontWeight': 'bold'}};
+    }}
     """)
     
     # Apply style to all base columns (1, 2, 3...)
     # Columns are strings in df
     base_cols = [c for c in df_window.columns if c != "ID"]
     for c in base_cols:
-        gb.configure_column(c, width=30, cellStyle=cell_style_jscode, sortable=False)
+        gb.configure_column(c, width=col_width, cellStyle=cell_style_jscode, sortable=False, suppressMenu=True)
     
-    gb.configure_grid_options(domLayout='autoHeight')
+    # Global Options
+    gb.configure_grid_options(
+        domLayout='autoHeight', 
+        headerHeight=30,
+        rowHeight=25,
+        suppressMovableColumns=True
+    )
+    
     gridOptions = gb.build()
+    
+    # Use key to force redraw when zoom changes to avoid column width glitches
+    grid_key = f"grid_{zoom_level}_{start_pos}"
     
     with st.spinner("Rendering grid..."):
         AgGrid(
@@ -103,5 +152,6 @@ def app_aliview():
             gridOptions=gridOptions,
             allow_unsafe_jscode=True,
             height=500,
-            theme="alpine"
+            theme="alpine",
+            key=grid_key
         )
