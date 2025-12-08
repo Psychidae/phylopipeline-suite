@@ -70,7 +70,7 @@ def app_aliview():
     # --- 4. Detail View (AgGrid) ---
     st.subheader("Detail View")
     
-    df_window = prepare_aggrid_data(alignment, start=start_pos, end=end_pos)
+    df_window = prepare_aggrid_data(_alignment=alignment, start=start_pos, end=end_pos)
     
     # Configure Grid
     gb = GridOptionsBuilder.from_dataframe(df_window)
