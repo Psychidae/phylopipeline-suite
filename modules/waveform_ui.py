@@ -231,6 +231,59 @@ def app_waveform_main():
                     on_change=on_stop_select,
                     placeholder="Select a stop codon..."
                 )
+                
+                # Show Suggestions for Selected Stop
+                if st.session_state.wf_stop_sel:
+                    with st.expander("💡 Fix Suggestions", expanded=True):
+                        # Get pos from option map
+                        mid_idx = stop_codon_options[st.session_state.wf_stop_sel]
+                        
+                        # Get exact codon from consensus
+                        # mid_idx is center. codon is mid_idx-1, mid_idx, mid_idx+1
+                        # Check bounds
+                        if 0 < mid_idx < len(cons_data)-1:
+                            codon_bases = [
+                                cons_data[mid_idx-1]["base"],
+                                cons_data[mid_idx]["base"],
+                                cons_data[mid_idx+1]["base"]
+                            ]
+                            codon_str = "".join(codon_bases).upper()
+                            
+                            st.write(f"Current Codon: **{codon_str}** (at {mid_idx+1})")
+                            
+                            if "N" in codon_str or "-" in codon_str:
+                                st.warning("Codon contains gaps or N.")
+                            else:
+                                from modules.bio_logic import suggest_stop_fixes
+                                fixes = suggest_stop_fixes(codon_str, tid)
+                                
+                                if fixes:
+                                    st.caption("Single-base changes that resolve this stop:")
+                                    
+                                    # Create small table-like buttons or text
+                                    # Maybe highlight if mutation matches a specific mismatch track?
+                                    # That's complex logic (check all tracks). For now just show options.
+                                    
+                                    cols_fix = st.columns(4)
+                                    for i, fix in enumerate(fixes):
+                                        c = cols_fix[i % 4]
+                                        # codon relative pos 0,1,2 -> absolute pos mid_idx-1+0...
+                                        abs_pos = mid_idx - 1 + fix['pos']
+                                        
+                                        # Check if this position has known mismatches (from mms list)
+                                        is_mm = abs_pos in mms
+                                        
+                                        msg = f"{fix['from']}➔**{fix['to']}** ({fix['aa']})"
+                                        if is_mm: msg += " ⚠️" # Indicate this pos is disputed
+                                        
+                                        if c.button(msg, key=f"fix_{mid_idx}_{i}", help=f"Mutate Pos {abs_pos+1} to {fix['to']}"):
+                                            # Apply Fix Action
+                                            st.session_state.all_contigs[sel]["consensus"][abs_pos]["base"] = fix['to'].lower()
+                                            st.session_state.wf_pos = abs_pos # Jump there
+                                            st.session_state.wf_k = "" # Clear input
+                                            st.rerun()
+                                else:
+                                    st.info("No single-base mutation resolves this stop (or invalid generic code).")
 
         st.divider()
         cd, cn = st.columns([1, 2])

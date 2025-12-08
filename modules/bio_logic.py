@@ -139,3 +139,34 @@ def process_contig_group(target_files, auto_trim, quality_thresh):
         res.append({"name": query["file_name"], "data": query, "display": disp, "offset": offset, "is_rc": is_rc})
     cons = calculate_initial_consensus(res)
     return {"results": res, "consensus": cons}
+
+def suggest_stop_fixes(codon, table_id=1):
+    bases = ['A', 'T', 'G', 'C']
+    suggestions = []
+    seq_codon = Seq(codon)
+    
+    for i in range(3):
+        original = codon[i]
+        for b in bases:
+            if b == original: continue
+            
+            # Create mutated codon
+            mutated = list(codon)
+            mutated[i] = b
+            mutated_str = "".join(mutated)
+            
+            # Translate
+            try:
+                aa = str(Seq(mutated_str).translate(table=table_id))
+            except:
+                aa = "?"
+                
+            if aa != "*":
+                suggestions.append({
+                    "pos": i,             # 0, 1, 2 relative to codon
+                    "from": original,
+                    "to": b,
+                    "aa": aa,
+                    "codon": mutated_str
+                })
+    return suggestions
