@@ -65,6 +65,24 @@ def create_main_figure(visible_results, alignment_ref, consensus_data, mismatche
     if has_orf:
         final_seq_str = "".join([d["base"] for d in consensus_data])
         orfs = find_orfs(final_seq_str, table_id=table_id)
+        
+        # --- Logic to find a "Clean" single frame ---
+        # If one ORF covers a significant portion of the sequence (e.g. > 70%), show only that frame.
+        total_len = len(final_seq_str.replace("-", ""))
+        best_frame = None
+        max_coverage = 0
+        
+        for orf in orfs:
+            coverage = orf['len'] / total_len if total_len > 0 else 0
+            if coverage > 0.70: # Threshold for "Clean"
+                if coverage > max_coverage:
+                    max_coverage = coverage
+                    best_frame = orf['frame']
+        
+        if best_frame is not None:
+            # Filter to show only the best frame
+            orfs = [o for o in orfs if o['frame'] == best_frame]
+
         ymap = {1:3, 2:2, 3:1, -1:-1, -2:-2, -3:-3}
         corf = {1:'blue', 2:'blue', 3:'blue', -1:'red', -2:'red', -3:'red'}
         
