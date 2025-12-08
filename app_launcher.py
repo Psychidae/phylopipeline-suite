@@ -46,11 +46,4 @@ elif "Alignment Viewer" in app_mode:
         from modules.app_viewer import app_viewer
         app_viewer()
     except Exception as e:
-        st.error(f"Failed to load Viewer: {e}")
-
-elif "AliView Prototype" in app_mode:
-    try:
-        from modules.app_aliview import app_aliview
-        app_aliview()
-    except Exception as e:
-        st.error(f"Failed to load AliView Prototype: {e}")
+        st.error(f"Failed to load Alignment Viewer: {e}")
