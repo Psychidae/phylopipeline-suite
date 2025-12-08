@@ -1,135 +1,114 @@
 import streamlit as st
-import streamlit.components.v1 as components
+import pandas as pd
+from Bio import AlignIO
 from io import StringIO
+from modules.aliview_model import load_alignment_data
+from modules.aliview_renderer import render_overview_image
 
 def app_aliview():
-    st.header("🧬 AliView (BioJS Mode)")
-    st.info("AliViewのような操作感を実現するため、BioJS MSA Viewerを採用しました。マウスでスクロール・ズームが可能です。")
+    st.header("🔄 AliView Integration Bridge")
+    st.info("Desktop版 **AliView** で編集を行うための連携モードです。")
 
-    # --- 1. Data Selection ---
+    # --- 1. Select Target File ---
     session_files = list(st.session_state.get("file_manager", {}).keys())
     
-    col1, col2 = st.columns([1, 2])
-    fasta_str = ""
-    
-    with col1:
-        if session_files:
-            selected_file = st.selectbox("Select File", ["(Upload New)"] + session_files)
-        else:
-            selected_file = "(Upload New)"
-            
-        if selected_file == "(Upload New)":
-            uploaded_file = st.file_uploader("Upload FASTA", type=["fasta", "fas", "txt"], key="biojs_upload")
-            if uploaded_file:
-                fasta_str = uploaded_file.getvalue().decode("utf-8")
-        else:
-            # Retrieve from session (DataFrame -> FASTA String conversion needed?)
-            # The file manager stores DataFrames. We need to convert back or store raw str.
-            # Ideally, we should check if we can reconstruct it.
-            # For robustness in this prototype phase, let's ask for upload if we can't easily get str.
-            # BUT, we can convert simple dataframe back to fasta.
-            try:
-                df = st.session_state.file_manager[selected_file]
-                # Assuming standard columns 'id', 'seq' or similar from our parser
-                # Let's check columns.
-                # If dataframe format is known (from app_viewer.py), it has 'id' and 'sequence'.
-                if 'id' in df.columns and 'sequence' in df.columns:
-                    recs = []
-                    for _, row in df.iterrows():
-                        recs.append(f">{row['id']}\n{row['sequence']}")
-                    fasta_str = "\n".join(recs)
-                else:
-                    st.warning("Selected file format is not compatible. Please upload raw FASTA.")
-            except Exception as e:
-                st.error(f"Error loading file: {e}")
-
-    if not fasta_str:
-        st.info("👈 Please upload or select a file to view.")
+    if not session_files:
+        st.warning("No files loaded in the session. Please go to 'Alignment Viewer' or 'GenBank Downloader' to load data first.")
+        # Optional: Allow quick upload here too?
+        uploaded_new = st.file_uploader("Or upload a new file to start:", type=["fasta", "fas", "txt"])
+        if uploaded_new:
+            # Add to session logic would be replicated... maybe just show it.
+            # For bridge simplicity, assume usage *within* a workflow.
+            pass
         return
 
-    # --- 2. Render BioJS MSA ---
-    # We inject the FASTA string into the JS.
-    # Escape newlines for JS string safety.
-    clean_fasta = fasta_str.replace("\n", "\\n").replace("'", "\\'")
+    selected_filename = st.selectbox("1. Select File to Edit:", session_files)
     
-    # BioJS MSA Template
-    # Using msa@1.0.3 (Stable)
-    html_code = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <script src="https://cdn.jsdelivr.net/npm/msa@1.0.3/dist/msa.min.js"></script>
-    </head>
-    <body>
-        <div id="msa_menu"></div>
-        <div id="msa_div"></div>
-        
-        <script>
-            var sequences = [
-                {{name: "seq1", seq: "ACGT..."}} // Placeholder logic? No, we use msa.io.fasta
-            ];
-            
-            var fastaData = '{clean_fasta}';
-            
-            var opts = {{
-                el: document.getElementById("msa_div"),
-                vis: {{
-                    conserv: false,
-                    overviewbox: true,
-                    seqlogo: true
-                }},
-                conf: {{
-                    dropImport: true
-                }},
-                zoomer: {{
-                    menuFontsize: "12px",
-                    autoResize: true
-                }}
-            }};
-            
-            var m = new msa.msa(opts);
-            
-            // Import FASTA
-            var seqs = msa.io.fasta.parse(fastaData);
-            m.seqs.reset(seqs);
-            m.render();
-            
-            // Adjust height
-            // m.el.style.height = "500px"; 
-        </script>
-    </body>
-    </html>
-    """
+    # Get current data (DataFrame)
+    df_current = st.session_state.file_manager[selected_filename]
     
-    # Refined Template with full width and proper importing
-    html_full = f"""
-    <script src="https://cdn.jsdelivr.net/npm/msa@1.0.3/dist/msa.min.js"></script>
-    <div id="msa_app"></div>
-    <script>
-        var fasta = '{clean_fasta}';
-        var opts = {{
-            el: document.getElementById('msa_app'),
-            vis: {{
-                conserv: true,
-                overviewbox: true,
-                seqlogo: true,
-                labelId: true
-            }},
-            zoomer: {{
-                boxRectHeight: 1,
-                boxRectWidth: 1,
-                alignmentHeight: 600,
-                labelNameLength: 200
-            }},
-            colorscheme: {{
-                scheme: "nucleotide"
-            }}
-        }};
-        var m = new msa.msa(opts);
-        var seqs = msa.io.fasta.parse(fasta);
-        m.seqs.reset(seqs);
-        m.render();
-    </script>
-    """
+    # Convert DataFrame to FASTA string (for download/preview)
+    # Assumes df has 'id' and 'sequence'
+    fasta_str_current = ""
+    try:
+        if 'id' in df_current.columns and 'sequence' in df_current.columns:
+            recs = []
+            for _, row in df_current.iterrows():
+                recs.append(f">{row['id']}\n{row['sequence']}")
+            fasta_str_current = "\n".join(recs)
+    except Exception as e:
+        st.error(f"Error reading file data: {e}")
+        return
 
-    components.html(html_full, height=700, scrolling=True)
+    # --- 2. Preview & Download ---
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("Current State")
+        # Generate Preview Image (Virtual Alignment Object needed for renderer)
+        # aliview_renderer needs Bio.MultipleSeqAlignment
+        # create one from string
+        try:
+            alignment_current = AlignIO.read(StringIO(fasta_str_current), "fasta")
+            img_current = render_overview_image(alignment_current, width=600, height=80, color_scheme='Default')
+            st.image(img_current, use_container_width=True, caption=f"Before Edit ({len(alignment_current)} seqs, {alignment_current.get_alignment_length()} bp)")
+        except Exception as e:
+            st.warning("Could not render preview image.")
+
+    with col2:
+        st.subheader("Action")
+        st.download_button(
+            label="⬇️ Download FASTA",
+            data=fasta_str_current,
+            file_name=f"for_aliview_{selected_filename}",
+            mime="text/plain",
+            type="primary",
+            help="Download this file, open it in AliView, edit, and save."
+        )
+        st.markdown("""
+        **How to edit:**
+        1. Download file.
+        2. Open in **AliView**.
+        3. Edit (delete seqs, trim).
+        4. **File > Save as Fasta**.
+        """)
+
+    st.markdown("---")
+
+    # --- 3. Upload & Update ---
+    st.subheader("2. Import Edited File")
+    
+    uploaded_edited = st.file_uploader("Upload the file saved from AliView:", type=["fasta", "fas", "txt"], key="aliview_import")
+    
+    if uploaded_edited:
+        # Load and Preview
+        alignment_edited = load_alignment_data(uploaded_edited, uploaded_edited.name)
+        
+        if alignment_edited:
+            st.subheader("New State Preview")
+            img_edited = render_overview_image(alignment_edited, width=600, height=80, color_scheme='Default')
+            st.image(img_edited, use_container_width=True, caption=f"After Edit ({len(alignment_edited)} seqs, {alignment_edited.get_alignment_length()} bp)")
+            
+            # Update Button
+            if st.button("🔄 Update Session with Edited Data", type="primary"):
+                # Convert Alignment back to DataFrame for Session Manager
+                new_rows = []
+                for record in alignment_edited:
+                    new_rows.append({
+                        "id": record.id,
+                        "sequence": str(record.seq),
+                        "length": len(record.seq)
+                    })
+                df_new = pd.DataFrame(new_rows)
+                
+                # UPDATE Session State
+                # We overwrite the *original* key with new data? Or create new?
+                # User flow suggests updating the current file is mostly what corresponds to "Save".
+                st.session_state.file_manager[selected_filename] = df_new
+                
+                # Also update active viewer_df if it matches
+                st.session_state.viewer_df = df_new.copy()
+                
+                st.success(f"Updated '{selected_filename}' successfully! You can now proceed to PhyloPipeline.")
+                st.balloons()
+
