@@ -177,11 +177,16 @@ def app_waveform_main():
             
             # Check all frames
             found_issues = False
+            
+            # Dictionary to hold stop codons for dropdown: key=Label, value=Position
+            stop_codon_options = {}
+            
             cols = st.columns(3)
             for i, frame in enumerate([1, 2, 3]):
                 with cols[i]:
                     aa_map = calculate_translation_map(cons_data, tid, frame)
                     stops = [a for a in aa_map if a["is_stop"]]
+                    
                     if stops:
                         st.error(f"Frame +{frame}: {len(stops)} Stops")
                         found_issues = True
@@ -195,19 +200,37 @@ def app_waveform_main():
                             
                             # Determine status
                             status_icon = "🔴"
-                            status_msg = "Stop Codon"
+                            status_msg = "Stop"
                             if related_mms:
                                 status_icon = "⚠️"
-                                status_msg = f"**Mismatch at {related_mms[0]+1}**"
+                                status_msg = f"Mismatch@{related_mms[0]+1}"
                             
-                            if st.button(f"{status_icon} Pos {mid_idx+1} ({status_msg})", key=f"stop_{frame}_{mid_idx}"):
-                                st.session_state.wf_pos = mid_idx
-                                st.rerun()
+                            label = f"Fr+{frame}: Pos {mid_idx+1} ({status_msg})"
+                            stop_codon_options[label] = mid_idx
                     else:
                         st.success(f"Frame +{frame}: Clean")
             
             if found_issues:
-                st.info("💡 Click on a Stop Codon button to jump to the location and inspect the waveform for base-calling errors.")
+                st.info("💡 Select a Stop Codon below to inspect the waveform.")
+                
+                # Callback for jump
+                def on_stop_select():
+                    selected_label = st.session_state.wf_stop_sel
+                    if selected_label:
+                        pos = stop_codon_options[selected_label]
+                        st.session_state.wf_pos = pos
+                        # We don't need explicit rerun here as on_change triggers it? 
+                        # Actually Streamlit flow sometimes needs it or just let it rerun.
+                
+                # Dropdown
+                st.selectbox(
+                    "Jump to Stop Codon:",
+                    options=list(stop_codon_options.keys()),
+                    index=None,
+                    key="wf_stop_sel",
+                    on_change=on_stop_select,
+                    placeholder="Select a stop codon..."
+                )
 
         st.divider()
         cd, cn = st.columns([1, 2])
