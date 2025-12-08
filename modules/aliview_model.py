@@ -18,17 +18,17 @@ def load_alignment_data(file_content, filename):
         return None
 
 @st.cache_data(show_spinner=False)
-def prepare_aggrid_data(alignment, start=0, end=None):
+def prepare_aggrid_data(_alignment, start=0, end=None):
     """
     Convert a slice of alignment to a DataFrame suitable for AgGrid.
     Optimized: Returns a list of dicts directly to avoid Pandas overhead if possible,
     but st-aggrid expects a DataFrame.
     """
-    if not alignment:
+    if not _alignment:
         return pd.DataFrame()
 
-    num_seqs = len(alignment)
-    seq_len = alignment.get_alignment_length()
+    num_seqs = len(_alignment)
+    seq_len = _alignment.get_alignment_length()
 
     if end is None:
         end = min(start + 100, seq_len) # Default view window
@@ -38,7 +38,7 @@ def prepare_aggrid_data(alignment, start=0, end=None):
     end = min(seq_len, end)
 
     # Effective slice
-    sliced_alignment = alignment[:, start:end]
+    sliced_alignment = _alignment[:, start:end]
     
     rows = []
     for record in sliced_alignment:
