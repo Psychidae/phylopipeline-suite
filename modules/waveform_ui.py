@@ -159,15 +159,50 @@ def app_waveform_main():
                 for i,b in enumerate(['R','Y','K','M','S','W']): 
                     if c[i].button(b, key=f"p2{i}"): do_ed(b)
 
-        fig = create_main_figure(vis_res, align_ref, cons_data, mms, tpos, st.session_state.wf_zoom, orf, trans, tid, qt)
-        ev = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points", config={'scrollZoom':True})
-        if ev and ev["selection"]["points"]:
-            cx = int(round(ev["selection"]["points"][0]["x"]))
-            rt = align_ref["display"]
-            if rt["peak_locations"]:
-                dst = [abs(p-cx) for p in rt["peak_locations"]]
-                nr = dst.index(min(dst))
-                if nr != st.session_state.wf_pos: st.session_state.wf_pos = nr; st.rerun()
+        # Plotly Chart
+        # Enable Box Select for Persistent Zooming
+        fig.update_layout(dragmode="select") # Default to select tool
+        
+        ev = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode=["points", "box"], config={'scrollZoom':True, 'displayModeBar': True})
+        
+        # Handle Events (Click or Box Select)
+        if ev:
+            # 1. Box Select (Zoom)
+            # Structure for box select often involves ranges?
+            # Streamlit returns points, but for box it returns points inside.
+            # We need the range. Actually st.plotly_chart selection event might not give the range coordinates directly,
+            # but gives the points *inside*.
+            # If we get points, we can calculate the min/max x to define the new zoom.
+            
+            sel_points = ev.get("selection", {}).get("points", [])
+            if sel_points:
+                # Get X coordinates of selected points
+                xs = [p["x"] for p in sel_points]
+                if xs:
+                    min_x, max_x = min(xs), max(xs)
+                    scan_width = max_x - min_x
+                    
+                    # If width is significant, treat as Zoom
+                    if scan_width > 5: # Threshold to distinguish from single click
+                        new_zoom = int(scan_width / 2)
+                        new_pos = int((min_x + max_x) / 2)
+                        
+                        # Only update if different
+                        if abs(new_zoom - st.session_state.wf_zoom) > 5 or abs(new_pos - st.session_state.wf_pos) > 1:
+                            st.session_state.wf_zoom = max(50, new_zoom)
+                            st.session_state.wf_pos = new_pos
+                            st.rerun()
+                    
+                    # If very narrow (single click), treat as Jump
+                    else:
+                        cx = int(round(xs[0]))
+                        rt = align_ref["display"]
+                        if rt["peak_locations"]:
+                            dst = [abs(p-cx) for p in rt["peak_locations"]]
+                            nr = dst.index(min(dst))
+                            if nr != st.session_state.wf_pos: 
+                                st.session_state.wf_pos = nr
+                                st.rerun()
 
         # --- Genetic Analysis & Stop Codon Report ---
         if trans:
