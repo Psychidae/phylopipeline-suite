@@ -169,6 +169,46 @@ def app_waveform_main():
                 nr = dst.index(min(dst))
                 if nr != st.session_state.wf_pos: st.session_state.wf_pos = nr; st.rerun()
 
+        # --- Genetic Analysis & Stop Codon Report ---
+        if trans:
+            st.divider()
+            st.markdown(f"### 🧬 Genetic Analysis (Code: {cname})")
+            from modules.bio_logic import calculate_translation_map
+            
+            # Check all frames
+            found_issues = False
+            cols = st.columns(3)
+            for i, frame in enumerate([1, 2, 3]):
+                with cols[i]:
+                    aa_map = calculate_translation_map(cons_data, tid, frame)
+                    stops = [a for a in aa_map if a["is_stop"]]
+                    if stops:
+                        st.error(f"Frame +{frame}: {len(stops)} Stops")
+                        found_issues = True
+                        for s in stops:
+                            # s['seq_idx'] is the middle base of the codon
+                            mid_idx = s["seq_idx"]
+                            codon_rng = range(mid_idx-1, mid_idx+2)
+                            
+                            # Check for mismatches in this codon
+                            related_mms = [m for m in mms if m in codon_rng]
+                            
+                            # Determine status
+                            status_icon = "🔴"
+                            status_msg = "Stop Codon"
+                            if related_mms:
+                                status_icon = "⚠️"
+                                status_msg = f"**Mismatch at {related_mms[0]+1}**"
+                            
+                            if st.button(f"{status_icon} Pos {mid_idx+1} ({status_msg})", key=f"stop_{frame}_{mid_idx}"):
+                                st.session_state.wf_pos = mid_idx
+                                st.rerun()
+                    else:
+                        st.success(f"Frame +{frame}: Clean")
+            
+            if found_issues:
+                st.info("💡 Click on a Stop Codon button to jump to the location and inspect the waveform for base-calling errors.")
+
         st.divider()
         cd, cn = st.columns([1, 2])
         with cd:
