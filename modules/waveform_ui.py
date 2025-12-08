@@ -296,7 +296,19 @@ def app_waveform_main():
             seq = "".join([d["base"] for d in cons_data]).replace("-","")
             st.download_button("Save", f">{sel}\n{seq}", "cons.fasta", type="primary")
         with cn:
-            st.session_state.wf_pos = st.slider("P", 0, rlen-1, st.session_state.wf_pos)
-            st.session_state.wf_zoom = st.slider("Z", 50, max_zoom, st.session_state.wf_zoom)
+            # 1. Position Slider
+            st.slider("Position", 0, rlen-1, key="wf_pos")
+            
+            # 2. Zoom Controls
+            zc1, zc2, zc3 = st.columns([1, 4, 1])
+            def zoom_out(): st.session_state.wf_zoom = min(max_zoom, st.session_state.wf_zoom + 100)
+            def zoom_in():  st.session_state.wf_zoom = max(50, st.session_state.wf_zoom - 100)
+            
+            with zc1: st.button("➖", on_click=zoom_out, help="Zoom Out (Show more)")
+            with zc3: st.button("➕", on_click=zoom_in, help="Zoom In (Show less)")
+            with zc2:
+                st.slider("Zoom Scope (+/- bp)", 50, max_zoom, key="wf_zoom", help="Number of bases to show around the center. Use this slider or buttons to persist zoom level.")
+            
+            st.caption("※マウスホイールでのズームは一時的です。編集後の表示維持にはこのスライダーを使用してください。")
 
     else: st.info("Upload .ab1 files")
