@@ -159,11 +159,13 @@ def app_waveform_main():
                 for i,b in enumerate(['R','Y','K','M','S','W']): 
                     if c[i].button(b, key=f"p2{i}"): do_ed(b)
 
+        fig = create_main_figure(vis_res, align_ref, cons_data, mms, tpos, st.session_state.wf_zoom, orf, trans, tid, qt)
+
         # Plotly Chart
         # Enable Box Select for Persistent Zooming
         fig.update_layout(dragmode="select") # Default to select tool
         
-        ev = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode=["points", "box"], config={'scrollZoom':True, 'displayModeBar': True})
+        ev = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode=["points", "box"],config={'scrollZoom':True, 'displayModeBar': True})
         
         # Handle Events (Click or Box Select)
         if ev:
