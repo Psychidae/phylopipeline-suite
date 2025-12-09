@@ -62,11 +62,9 @@ def align_pair(ref_data, query_data):
     final_query = query_rc if is_rc else "".join(query_data["sequence"])
     alignments = aligner.align("".join(ref_data["sequence"]), final_query)
     
-    if not alignments: return False, 0
+    if not alignments: return False, []
     best = alignments[0]
-    try: offset = int(best.coordinates[0][0] - best.coordinates[1][0])
-    except: offset = 0
-    return is_rc, offset
+    return is_rc, best.coordinates.tolist()
 
 def calculate_initial_consensus(results, ref_length=None):
     if not results: return []
@@ -134,9 +132,11 @@ def process_contig_group(target_files, auto_trim, quality_thresh):
     ref = raw_list[0]
     res = [{"name": ref["file_name"], "data": ref, "display": ref, "offset": 0, "is_rc": False}]
     for query in raw_list[1:]:
-        is_rc, offset = align_pair(ref, query)
+        is_rc, coords = align_pair(ref, query)
         disp = get_rev_comp(query) if is_rc else query
-        res.append({"name": query["file_name"], "data": query, "display": disp, "offset": offset, "is_rc": is_rc})
+        try: offset = int(coords[0][0] - coords[1][0])
+        except: offset = 0
+        res.append({"name": query["file_name"], "data": query, "display": disp, "offset": offset, "alignment": coords, "is_rc": is_rc})
     cons = calculate_initial_consensus(res)
     return {"results": res, "consensus": cons}
 
