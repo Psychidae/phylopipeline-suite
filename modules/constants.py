@@ -1,3 +1,10 @@
+import os
+
+# --- PATH CONSTANTS ---
+# Assuming structure: root/modules/constants.py
+MODULES_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(MODULES_DIR)
+TOOLS_DIR = os.path.join(ROOT_DIR, "tools")
 
 IUPAC_CODES = {
     'A': 'Adenine', 'C': 'Cytosine', 'G': 'Guanine', 'T': 'Thymine', '-': 'Gap',

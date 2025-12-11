@@ -4,46 +4,34 @@ import sys
 import subprocess
 import streamlit as st
 
+from modules.constants import TOOLS_DIR
+
 def find_tool_path(tool_name):
     """ツールの実行パスを探す（Windows/Mac/Linux対応）"""
     target_names = [tool_name]
     if tool_name == "iqtree2": target_names.append("iqtree")
     if tool_name == "mafft": target_names.append("mafft.bat")
 
-    # 1. システムパス
+    # 1. Check Standard System Paths (shutil.which)
     for name in target_names:
         path = shutil.which(name)
         if path: return path
 
-    # 2. Python実行環境のbinディレクトリ (Conda/Venv対応)
-    # Streamlit CloudなどでPATHが通っていない場合があるため
+    # 2. Check Local TOOLS_DIR (Centralized Logic)
+    for name in target_names:
+        candidates = [name, name + ".exe", name + ".bat", name + ".cmd"]
+        for cand in candidates:
+             tool_path = os.path.join(TOOLS_DIR, cand)
+             if os.path.exists(tool_path):
+                 return tool_path
+
+    # 3. Python Bin (Fallback)
     python_dir = os.path.dirname(sys.executable)
     for name in target_names:
         candidate = os.path.join(python_dir, name)
-        if os.path.exists(candidate):
-            return candidate
-        # Windows対応
+        if os.path.exists(candidate): return candidate
         if os.path.exists(candidate + ".exe"): return candidate + ".exe"
-        if os.path.exists(candidate + ".bat"): return candidate + ".bat"
 
-    # 3. ローカル探索
-    base_dir = os.getcwd()
-    module_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(module_dir)
-    
-    search_dirs = [
-        os.path.join(base_dir, "tools"), 
-        base_dir,
-        os.path.join(project_root, "tools")
-    ]
-    for search_dir in search_dirs:
-        if os.path.exists(search_dir):
-            for root, dirs, files in os.walk(search_dir):
-                for name in target_names:
-                    candidates = [name, name + ".exe", name + ".bat", name + ".cmd"]
-                    for f in files:
-                        if f.lower() in candidates:
-                            return os.path.join(root, f)
     return None
 
 def run_command(cmd, **kwargs):
