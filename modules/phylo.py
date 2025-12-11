@@ -199,8 +199,19 @@ def app_phylo():
                             
                             with st.spinner("Running IQ-TREE..."):
                                 res = run_command(cmd)
+                                # Check return code
+                                if res.returncode != 0:
+                                    st.error("IQ-TREE execution failed.")
+                                    st.code(res.stdout + "\n" + res.stderr if res.stderr else "")
+                                    st.stop()
+
                                 if os.path.exists(os.path.join(td,"out.treefile")):
                                     with open(os.path.join(td,"out.treefile")) as f: st.session_state.ptree = f.read()
+                                else:
+                                    st.error("IQ-TREE finished but no output file generated.")
+                                    st.code(res.stdout)
+                                    st.stop()
+
                                 if os.path.exists(os.path.join(td,"out.iqtree")):
                                     with open(os.path.join(td,"out.iqtree")) as f: st.session_state.preport = f.read()
                                 st.session_state.plog = res.stdout
