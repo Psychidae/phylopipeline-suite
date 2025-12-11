@@ -56,23 +56,36 @@ def install_tools_linux():
         # Extract
         subprocess.run(["tar", "-xzf", tar_path, "-C", TOOLS_DIR], check=True)
         
-        # Move binary (extracted folder name varies, usually iqtree-2.4.0-Linux)
-        extracted_dir = os.path.join(TOOLS_DIR, "iqtree-2.4.0-Linux")
-        bin_path = os.path.join(extracted_dir, "bin", "iqtree2")
+        # Find the binary dynamically (folder name might vary)
+        found_bin = None
+        for root, dirs, files in os.walk(TOOLS_DIR):
+            if "iqtree2" in files:
+                found_bin = os.path.join(root, "iqtree2")
+                break
         
-        if os.path.exists(bin_path):
-            shutil.move(bin_path, iqtree_path)
+        if found_bin and os.path.exists(found_bin):
+            # Move to target location if it's not already there
+            if os.path.abspath(found_bin) != os.path.abspath(iqtree_path):
+                shutil.move(found_bin, iqtree_path)
+            
             subprocess.run(["chmod", "+x", iqtree_path], check=True)
             msg = f"IQ-TREE 2 installed to {iqtree_path}"
         else:
-            return False, "Error: Could not find iqtree2 binary in extracted files."
+            # List files for debugging
+            files_list = []
+            for r, d, f in os.walk(TOOLS_DIR):
+                for file in f:
+                    files_list.append(os.path.join(r, file))
+            return False, f"Error: Binary not found. Extracted contents: {files_list[:5]}..."
             
-        # Cleanup
+        # Cleanup (Remove subdirectories created by tar)
         if os.path.exists(tar_path):
             os.remove(tar_path)
-        if os.path.exists(extracted_dir):
-            shutil.rmtree(extracted_dir)
             
+        # Remove any other directories in TOOLS_DIR that are not the binary itself
+        # (This is a bit risky, so let's just leave them or be very specific. 
+        #  For now, just finding and moving the binary is enough stability.)
+        
         return True, msg
 
     except Exception as e:
