@@ -3,7 +3,13 @@ import sys
 import os
 
 # Add project root to sys.path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+root_dir = os.path.join(os.path.dirname(__file__), '..')
+sys.path.append(root_dir)
+
+# Add tools directory to PATH
+tools_dir = os.path.join(root_dir, 'tools')
+if os.path.exists(tools_dir):
+    os.environ["PATH"] += os.pathsep + os.path.abspath(tools_dir)
 
 # --- Install Dependencies (Linux/Cloud) ---
 try:

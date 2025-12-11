@@ -28,7 +28,14 @@ def find_tool_path(tool_name):
 
     # 3. ローカル探索
     base_dir = os.getcwd()
-    search_dirs = [os.path.join(base_dir, "tools"), base_dir]
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(module_dir)
+    
+    search_dirs = [
+        os.path.join(base_dir, "tools"), 
+        base_dir,
+        os.path.join(project_root, "tools")
+    ]
     for search_dir in search_dirs:
         if os.path.exists(search_dir):
             for root, dirs, files in os.walk(search_dir):
