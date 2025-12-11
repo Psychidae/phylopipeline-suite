@@ -22,9 +22,24 @@ def install_tools():
     if not os.path.exists(tools_dir):
         os.makedirs(tools_dir)
 
+    # Function to check if binary is valid
+    def is_valid_binary(path):
+        if not os.path.exists(path):
+            return False
+        try:
+            # Try running version command
+            subprocess.run([path, "--version"], capture_output=True, check=True)
+            return True
+        except (OSError, subprocess.CalledProcessError):
+            return False
+
     # Check for IQ-TREE 2
-    if not os.path.exists(iqtree_path):
-        print("Installing IQ-TREE 2 for Linux...")
+    if not is_valid_binary(iqtree_path):
+        print(f"Installing IQ-TREE 2 for Linux (Replacing invalid or missing binary)...")
+        if os.path.exists(iqtree_path):
+             try: os.remove(iqtree_path)
+             except: pass
+        
         try:
             # Download URL for IQ-TREE 2.4.0 Linux (Intel 64-bit)
             url = "https://github.com/iqtree/iqtree2/releases/download/v2.4.0/iqtree-2.4.0-Linux-intel.tar.gz"
