@@ -9,6 +9,7 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from io import StringIO
 import subprocess
+import re
 
 # モジュール分割した機能をインポート
 from modules.common import find_tool_path, generate_alignment_html_from_df, run_command
@@ -94,6 +95,9 @@ def app_phylo():
             st.session_state.current_phylo_file = uploaded_file.name
             st.session_state.phylo_aligned_df = None
             
+            # Sanitization Option
+            sanitize_ids = st.checkbox("Replace spaces with underscores in sequence IDs", value=True, help="Replaces all whitespace characters with underscores to prevent errors in IQ-TREE.")
+
             # 文字コード対応
             file_bytes = uploaded_file.getvalue()
             decoded = None
@@ -104,7 +108,26 @@ def app_phylo():
 
             try:
                 raw_seqs = list(SeqIO.parse(StringIO(decoded), "fasta"))
-                data = [{"Include": True, "ID": s.id, "Sequence": str(s.seq)} for s in raw_seqs]
+                data = []
+                seen_ids = set()
+                for s in raw_seqs:
+                    original_id = s.id
+                    
+                    # 1. Sanitize (Optional)
+                    if sanitize_ids:
+                        # Use description to capture full header (BioPython truncates id at space)
+                        original_id = s.description
+                        # Replace all whitespaces with underscores
+                        original_id = re.sub(r'\s+', '_', original_id)
+
+                    # 2. Deduplicate
+                    new_id = original_id
+                    counter = 1
+                    while new_id in seen_ids:
+                        new_id = f"{original_id}_{counter}"
+                        counter += 1
+                    seen_ids.add(new_id)
+                    data.append({"Include": True, "ID": new_id, "Sequence": str(s.seq)})
                 st.session_state.phylo_initial_df = pd.DataFrame(data)
             except Exception as e:
                 st.error(f"Error parsing FASTA: {e}")
