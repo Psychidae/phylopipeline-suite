@@ -1,4 +1,9 @@
 import streamlit as st
+import sys
+import os
+
+# Add project root to sys.path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from modules.downloader import app_downloader
 from modules.phylo import app_phylo
 from modules.waveform_ui import app_waveform_main
