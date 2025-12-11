@@ -6,11 +6,6 @@ import os
 root_dir = os.path.join(os.path.dirname(__file__), '..')
 sys.path.append(root_dir)
 
-# Add tools directory to PATH
-tools_dir = os.path.join(root_dir, 'tools')
-if os.path.exists(tools_dir):
-    os.environ["PATH"] += os.pathsep + os.path.abspath(tools_dir)
-
 # --- Install Dependencies (Linux/Cloud) ---
 installer_log = []
 try:
@@ -21,6 +16,11 @@ try:
     installer_msg = "Installer ran successfully."
 except Exception as e:
     installer_msg = f"Installer failed: {e}"
+
+# Add tools directory to PATH (Must be AFTER installer creates it)
+tools_dir = os.path.join(root_dir, 'tools')
+if os.path.exists(tools_dir):
+    os.environ["PATH"] += os.pathsep + os.path.abspath(tools_dir)
 
 from modules.downloader import app_downloader
 from modules.phylo import app_phylo
