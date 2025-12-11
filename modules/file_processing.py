@@ -8,7 +8,7 @@ def guess_group_name(filename):
     
     # 特定キーワードがあればその手前まで
     known_tags = r'(HCO|LCO|COI|ITS|16S|18S|28S|M13|VF|VR|T7|SP6)'
-    match = re.search(f'(.+?)[_\.-]+{known_tags}', name, re.IGNORECASE)
+    match = re.search(r'(.+?)[_\.-]+' + known_tags, name, re.IGNORECASE)
     if match:
         return match.group(1).rstrip('_- .')
 
