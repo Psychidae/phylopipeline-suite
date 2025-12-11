@@ -4,6 +4,14 @@ import os
 
 # Add project root to sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+# --- Install Dependencies (Linux/Cloud) ---
+try:
+    from modules.installer import install_tools
+    install_tools()
+except Exception as e:
+    print(f"Installer failed: {e}")
+
 from modules.downloader import app_downloader
 from modules.phylo import app_phylo
 from modules.waveform_ui import app_waveform_main
