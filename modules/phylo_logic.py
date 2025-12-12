@@ -3,7 +3,49 @@ import numpy as np
 import math
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import squareform
-from Bio import SeqIO
+from Bio import SeqIO, Phylo
+from Bio.Phylo.TreeConstruction import DistanceCalculator, DistanceTreeConstructor
+from Bio.Phylo.Consensus import bootstrap_trees, get_support
+
+def run_phylo_bootstrap(msa, method="nj", model="identity", replicates=100):
+    """
+    Run NJ or UPGMA with bootstrap support.
+    
+    Args:
+        msa: MultipleSeqAlignment object
+        method: "nj" or "upgma"
+        model: "identity", "kimura80" (k2p), etc. (BioPython models)
+        replicates: Number of bootstrap replicates (0 to disable)
+        
+    Returns:
+        tree: Bio.Phylo BaseTree object (with support values if replicates > 0)
+    """
+    # 1. Calculator Setup
+    # BioPython model names: 'identity', 'blastn', 'trans', 'benner6', 'k2p', 'jukes-cantor', 'kimura80'
+    # Note: 'kimura80' is alias for 'k2p' in some versions, or vice versa. BioPython usually uses 'identity', 'jukes-cantor', 'kimura80'.
+    calculator = DistanceCalculator(model)
+    constructor = DistanceTreeConstructor(calculator, method)
+    
+    # 2. Build Main Tree
+    main_tree = constructor.build_tree(msa)
+    
+    # 3. Bootstrap (if requested)
+    if replicates > 0:
+        # Generate bootstrap trees
+        # bootstrap_trees generates replicates of MSA, then builds trees for each
+        boot_trees = bootstrap_trees(msa, replicates, constructor)
+        
+        # Calculate support
+        # get_support maps support values onto the 'target_tree' (main_tree)
+        # Returns the tree with confidence values (numbers 0-100 or 0.0-1.0 depending on implementation)
+        # BioPython usually calculates percentage (0-100) or fraction. 
+        # get_support modifies the tree in-place (naming clades with support) OR returns consensus.
+        # We want to map support onto our main topology.
+        consensus_tree = get_support(main_tree, boot_trees)
+        return consensus_tree
+    else:
+        return main_tree
+
 
 def generate_methods_log(tool_versions, params):
     """

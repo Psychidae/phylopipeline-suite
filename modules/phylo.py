@@ -13,7 +13,7 @@ import re
 
 # モジュール分割した機能をインポート
 from modules.common import find_tool_path, generate_alignment_html_from_df, run_command
-from modules.phylo_logic import run_asap_scan, get_partition_by_threshold, generate_methods_log
+from modules.phylo_logic import run_asap_scan, get_partition_by_threshold, generate_methods_log, run_phylo_bootstrap
 from modules.phylo_editor import open_alignment_editor
 
 def app_phylo():
@@ -274,11 +274,23 @@ def app_phylo():
 
                     # NJ / UPGMA Settings
                     else:
-                        dist_model_bp = st.selectbox("Distance Model", ["identity", "kimura80", "jukes-cantor"], index=0, key="p_dist_bp")
+                        c_model, c_boot = st.columns(2)
+                        with c_model:
+                             # Friendly names mapped to BioPython models
+                             # 'kimura80' is commonly K2P. 
+                             model_map = {
+                                 "Identity": "identity",
+                                 "Kimura 2-Parameter (K2P)": "kimura80",
+                                 "Jukes-Cantor": "jukes-cantor"
+                             }
+                             dist_model_ui = st.selectbox("Distance Model", list(model_map.keys()), index=1, key="p_dist_bp")
+                             dist_model_bp = model_map[dist_model_ui]
+                        
+                        with c_boot:
+                             boot_rep = st.number_input("Bootstrap Replicates", value=100, step=100, key="p_nj_boot", help="0 to disable bootstrapping")
                         
                         if st.button(f"Run {phylo_method}", type="primary", use_container_width=True):
                              from Bio import Phylo
-                             from Bio.Phylo.TreeConstruction import DistanceCalculator, DistanceTreeConstructor
                              
                              sel = st.session_state.phylo_aligned_df[st.session_state.phylo_aligned_df["Include"]==True]
                              
@@ -286,32 +298,30 @@ def app_phylo():
                              from Bio.Align import MultipleSeqAlignment
                              msa = MultipleSeqAlignment([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()])
                              
-                             with st.spinner(f"Running {phylo_method}..."):
+                             method_key = "nj" if "NJ" in phylo_method else "upgma"
+                             
+                             with st.spinner(f"Running {phylo_method} with {dist_model_ui}..."):
                                  try:
-                                     # Calculate Distance Matrix
-                                     calculator = DistanceCalculator(dist_model_bp)
-                                     dm = calculator.get_distance(msa)
-                                     
-                                     # Build Tree
-                                     constructor = DistanceTreeConstructor()
-                                     if "NJ" in phylo_method:
-                                         tree = constructor.nj(dm)
-                                     else:
-                                         tree = constructor.upgma(dm)
+                                     # Execute with bootstrapping
+                                     # Result is a Tree object (Consensus or Main)
+                                     tree = run_phylo_bootstrap(msa, method=method_key, model=dist_model_bp, replicates=boot_rep)
                                      
                                      # Output to string
+                                     # Ensure internal node labels (support) are kept
+                                     # Use 'newick' format.
                                      with StringIO() as io:
                                          Phylo.write(tree, io, "newick")
                                          st.session_state.ptree = io.getvalue()
                                      
                                      # Clear IQ-TREE specific outputs
-                                     st.session_state.preport = f"{phylo_method} analysis completed.\nDistance Model: {dist_model_bp}"
-                                     st.session_state.plog = f"Method: {phylo_method}\nModel: {dist_model_bp}\nComputed via BioPython."
+                                     st.session_state.preport = f"{phylo_method} analysis completed.\nDistance Model: {dist_model_ui}\nBootstrap Replicates: {boot_rep}"
+                                     st.session_state.plog = f"Method: {phylo_method}\nModel: {dist_model_ui} ({dist_model_bp})\nBootstrap: {boot_rep}\nComputed via BioPython."
                                      
                                      # Log
                                      params = {
                                         "Tool": phylo_method,
-                                        "Model": dist_model_bp,
+                                        "Model": dist_model_ui,
+                                        "Bootstrap": boot_rep,
                                         "MAFFT Algo": mafft_algo, 
                                         "trimAl": "Yes" if use_trimal else "No"
                                      }
