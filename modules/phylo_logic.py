@@ -5,12 +5,17 @@ from Bio.Phylo.TreeConstruction import DistanceCalculator, DistanceTreeConstruct
 from Bio.Phylo.Consensus import bootstrap_trees, get_support
 from Bio import SeqIO, Phylo
 
-class CustomDistanceCalculator:
+class CustomDistanceCalculator(DistanceCalculator):
     """
     Custom Distance Calculator to handle models missing in some BioPython environments (e.g. kimura80).
     Mimics Bio.Phylo.TreeConstruction.DistanceCalculator interface.
     """
     def __init__(self, model='identity'):
+        # Initialize parent with a safe, always-existing model to avoid errors
+        super().__init__('identity') 
+        # API mismatch prevention: BioPython >= 1.80 might not use 'identity' in __init__ checks strongly, 
+        # but just in case, we satisfy it.
+        # Now store our actual model
         self.model = model
 
     def get_distance(self, msa):
@@ -58,9 +63,6 @@ def _calc_dist_matrix_numpy(seqs, model):
     
     # 定義: Transition (A<->G, C<->T)
     def is_transition_vec(c1, c2):
-         # Vectorized transition check is hard with chars.
-         # Use simplified check or loops.
-         # Since this is "Custom", we assume user wants the logic we have.
          pass
          
     # ... (Reusing logic from original calculate_distance_matrix) ...
@@ -83,12 +85,6 @@ def _calc_dist_matrix_numpy(seqs, model):
                 if model == 'kimura80' or model == 'k2p':
                     # K2P Logic
                     pairs = np.stack((s1[valid_mask], s2[valid_mask]), axis=1)
-                    
-                    # Transition: {A, G} or {C, T}
-                    # A=65, C=67, G=71, T=84
-                    # A+G = 136, C+T = 151. No overlap.
-                    # Or just:
-                    # ts = ((p0=='A')&(p1=='G')) | ((p0=='G')&(p1=='A')) | ((p0=='C')&(p1=='T')) | ((p0=='T')&(p1=='C'))
                     
                     p0 = pairs[:, 0]
                     p1 = pairs[:, 1]
@@ -135,9 +131,6 @@ def run_phylo_bootstrap(msa, method="nj", model="identity", replicates=100):
     Run NJ or UPGMA with bootstrap support.
     """
     # Use CustomCalculator for 'kimura80' to avoid platform issues.
-    # For standard 'identity', we could use BioPython's, but consistently using ours is safe too.
-    # Let's use ours if model is k2p, else try standard? 
-    # Actually, CustomCalculator is more robust given the error seen.
     if model in ['kimura80', 'k2p', 'identity']:
          calculator = CustomDistanceCalculator(model)
     else:
@@ -152,7 +145,8 @@ def run_phylo_bootstrap(msa, method="nj", model="identity", replicates=100):
     # 3. Bootstrap
     if replicates > 0:
         # boostrap_trees returns a generator. get_support needs a list or len_trees.
-        boot_trees = list(bootstrap_trees(msa, replicates, constructor))
+        # Fix explicit arguments
+        boot_trees = list(bootstrap_trees(msa, replicates, distance_calculator=calculator, tree_constructor=constructor))
         consensus_tree = get_support(main_tree, boot_trees)
         return consensus_tree
     else:
