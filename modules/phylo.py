@@ -373,7 +373,10 @@ def app_phylo():
                     st.success(f"{method_name} Finished!")
                     
                     c1, c2, c3 = st.columns(3)
-                    c1.download_button("📥 Treefile", st.session_state.ptree, "phylo.treefile")
+                    
+                    # Dynamic extension: .treefile for IQ-TREE, .nwk for others (NJ/UPGMA)
+                    tree_ext = "treefile" if "IQ-TREE" in method_name else "nwk"
+                    c1.download_button("📥 Treefile", st.session_state.ptree, f"phylo.{tree_ext}")
                     
                     report_fname = "report.iqtree" if "IQ-TREE" in method_name else "report.txt"
                     c2.download_button("📄 Report", st.session_state.preport, report_fname)
