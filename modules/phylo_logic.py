@@ -1,46 +1,158 @@
 import pandas as pd
 import numpy as np
 import math
-from scipy.cluster.hierarchy import linkage, fcluster
-from scipy.spatial.distance import squareform
-from Bio import SeqIO, Phylo
-from Bio.Phylo.TreeConstruction import DistanceCalculator, DistanceTreeConstructor
+from Bio.Phylo.TreeConstruction import DistanceCalculator, DistanceTreeConstructor, DistanceMatrix
 from Bio.Phylo.Consensus import bootstrap_trees, get_support
+from Bio import SeqIO, Phylo
+
+class CustomDistanceCalculator:
+    """
+    Custom Distance Calculator to handle models missing in some BioPython environments (e.g. kimura80).
+    Mimics Bio.Phylo.TreeConstruction.DistanceCalculator interface.
+    """
+    def __init__(self, model='identity'):
+        self.model = model
+
+    def get_distance(self, msa):
+        """
+        Calculate distance matrix for MSA.
+        Returns Bio.Phylo.TreeConstruction.DistanceMatrix
+        """
+        names = [s.id for s in msa]
+        n = len(msa)
+        
+        # Extract sequences as list of strings
+        seqs = [str(s.seq).upper() for s in msa]
+        
+        # Calculate numpy matrix
+        dist_mat_np = _calc_dist_matrix_numpy(seqs, self.model)
+        
+        # Convert to list of lists (lower triangular)
+        # BioPython DistanceMatrix expects: [ [], [d21], [d31, d32], ... ]
+        matrix_list = []
+        for i in range(n):
+            row = []
+            for j in range(i):
+                row.append(dist_mat_np[i, j])
+            matrix_list.append(row)
+            
+        return DistanceMatrix(names, matrix_list)
+
+def _calc_dist_matrix_numpy(seqs, model):
+    """
+    Core numpy calculation logic
+    """
+    max_len = max(len(s) for s in seqs)
+    # Pad sequences
+    matrix = []
+    for s in seqs:
+        s_pad = s.ljust(max_len, '-')
+        matrix.append(np.array(list(s_pad)))
+    matrix = np.array(matrix)
+    
+    n = len(seqs)
+    dist_matrix = np.zeros((n, n))
+    
+    # Check if protein model requested in DNA context, fallback to p-dist?
+    # For now, only implement k2p and p-dist explicitly.
+    
+    # 定義: Transition (A<->G, C<->T)
+    def is_transition_vec(c1, c2):
+         # Vectorized transition check is hard with chars.
+         # Use simplified check or loops.
+         # Since this is "Custom", we assume user wants the logic we have.
+         pass
+         
+    # ... (Reusing logic from original calculate_distance_matrix) ...
+    # Optimization: Use indices for calculation
+    
+    for i in range(n):
+        for j in range(i+1, n):
+            s1 = matrix[i]
+            s2 = matrix[j]
+            valid_mask = (s1 != '-') & (s2 != '-') & (s1 != 'N') & (s2 != 'N')
+            valid_count = np.sum(valid_mask)
+            
+            if valid_count == 0:
+                dist = 0.0
+            else:
+                mismatches = (s1[valid_mask] != s2[valid_mask])
+                diff_count = np.sum(mismatches)
+                p_dist = diff_count / valid_count
+                
+                if model == 'kimura80' or model == 'k2p':
+                    # K2P Logic
+                    pairs = np.stack((s1[valid_mask], s2[valid_mask]), axis=1)
+                    
+                    # Transition: {A, G} or {C, T}
+                    # A=65, C=67, G=71, T=84
+                    # A+G = 136, C+T = 151. No overlap.
+                    # Or just:
+                    # ts = ((p0=='A')&(p1=='G')) | ((p0=='G')&(p1=='A')) | ((p0=='C')&(p1=='T')) | ((p0=='T')&(p1=='C'))
+                    
+                    p0 = pairs[:, 0]
+                    p1 = pairs[:, 1]
+                    
+                    mask_diff = (p0 != p1)
+                    if np.sum(mask_diff) == 0:
+                        ts_count = 0
+                        tv_count = 0
+                    else:
+                        pd0 = p0[mask_diff]
+                        pd1 = p1[mask_diff]
+                        
+                        is_ts = (
+                            ((pd0 == 'A') & (pd1 == 'G')) | 
+                            ((pd0 == 'G') & (pd1 == 'A')) |
+                            ((pd0 == 'C') & (pd1 == 'T')) | 
+                            ((pd0 == 'T') & (pd1 == 'C'))
+                        )
+                        ts_count = np.sum(is_ts)
+                        tv_count = np.sum(~is_ts)
+                    
+                    P = ts_count / valid_count
+                    Q = tv_count / valid_count
+                    
+                    try:
+                        w1 = 1.0 - 2.0*P - Q
+                        w2 = 1.0 - 2.0*Q
+                        if w1 <= 0 or w2 <= 0:
+                            dist = 10.0
+                        else:
+                            dist = -0.5 * np.log(w1) - 0.25 * np.log(w2)
+                    except:
+                        dist = 1.0
+                else:
+                    # Default to p-distance for everything else
+                    dist = p_dist
+            
+            dist_matrix[i, j] = dist_matrix[j, i] = dist
+            
+    return dist_matrix
 
 def run_phylo_bootstrap(msa, method="nj", model="identity", replicates=100):
     """
     Run NJ or UPGMA with bootstrap support.
-    
-    Args:
-        msa: MultipleSeqAlignment object
-        method: "nj" or "upgma"
-        model: "identity", "kimura80" (k2p), etc. (BioPython models)
-        replicates: Number of bootstrap replicates (0 to disable)
-        
-    Returns:
-        tree: Bio.Phylo BaseTree object (with support values if replicates > 0)
     """
-    # 1. Calculator Setup
-    # BioPython model names: 'identity', 'blastn', 'trans', 'benner6', 'k2p', 'jukes-cantor', 'kimura80'
-    # Note: 'kimura80' is alias for 'k2p' in some versions, or vice versa. BioPython usually uses 'identity', 'jukes-cantor', 'kimura80'.
-    calculator = DistanceCalculator(model)
+    # Use CustomCalculator for 'kimura80' to avoid platform issues.
+    # For standard 'identity', we could use BioPython's, but consistently using ours is safe too.
+    # Let's use ours if model is k2p, else try standard? 
+    # Actually, CustomCalculator is more robust given the error seen.
+    if model in ['kimura80', 'k2p', 'identity']:
+         calculator = CustomDistanceCalculator(model)
+    else:
+         # Fallback to BioPython standard (if available)
+         calculator = DistanceCalculator(model)
+
     constructor = DistanceTreeConstructor(calculator, method)
     
     # 2. Build Main Tree
     main_tree = constructor.build_tree(msa)
     
-    # 3. Bootstrap (if requested)
+    # 3. Bootstrap
     if replicates > 0:
-        # Generate bootstrap trees
-        # bootstrap_trees generates replicates of MSA, then builds trees for each
-        boot_trees = bootstrap_trees(msa, replicates, constructor)
-        
-        # Calculate support
-        # get_support maps support values onto the 'target_tree' (main_tree)
-        # Returns the tree with confidence values (numbers 0-100 or 0.0-1.0 depending on implementation)
-        # BioPython usually calculates percentage (0-100) or fraction. 
-        # get_support modifies the tree in-place (naming clades with support) OR returns consensus.
-        # We want to map support onto our main topology.
+        # boostrap_trees returns a generator. get_support needs a list or len_trees.
+        boot_trees = list(bootstrap_trees(msa, replicates, constructor))
         consensus_tree = get_support(main_tree, boot_trees)
         return consensus_tree
     else:
@@ -78,76 +190,23 @@ def calculate_distance_matrix(aligned_fasta_path, model='p-dist'):
     """
     アラインメント済みFASTAから距離行列を計算する
     model: 'p-dist' (Hamming) or 'k2p' (Kimura 2-Parameter)
+    Compatible with ASAP scan
     """
     seqs = list(SeqIO.parse(aligned_fasta_path, "fasta"))
     if len(seqs) < 3: return None, None, None, "配列数が少なすぎます（最低3配列必要）"
     
     ids = [s.id for s in seqs]
+    seq_strs = [str(s.seq).upper() for s in seqs]
     
-    # 配列をnumpy配列化
-    max_len = max(len(s.seq) for s in seqs)
-    matrix = []
-    for s in seqs:
-        seq_str = str(s.seq).upper().ljust(max_len, '-')
-        matrix.append(np.array(list(seq_str)))
-    matrix = np.array(matrix)
+    # Use shared logic
+    # map model names: 'p-dist' -> 'identity' for consistency in core logic?
+    # Our core logic supports 'kimura80'/'k2p' and defaults to identity.
+    # ASAP calls pass 'p-dist' or 'k2p'.
+    core_model = 'kimura80' if model == 'k2p' else 'identity'
     
-    # 距離行列計算
-    n = len(seqs)
-    dist_matrix = np.zeros((n, n))
+    dist_matrix = _calc_dist_matrix_numpy(seq_strs, core_model)
     
-    # 定義: Transition (A<->G, C<->T)
-    def is_transition(n1, n2):
-        s = {n1, n2}
-        return s == {'A', 'G'} or s == {'C', 'T'}
-
-    for i in range(n):
-        for j in range(i+1, n):
-            s1 = matrix[i]
-            s2 = matrix[j]
-            valid_mask = (s1 != '-') & (s2 != '-') & (s1 != 'N') & (s2 != 'N')
-            valid_count = np.sum(valid_mask)
-            
-            if valid_count == 0:
-                dist = 0.0
-            else:
-                mismatches = (s1[valid_mask] != s2[valid_mask])
-                diff_count = np.sum(mismatches)
-                p_dist = diff_count / valid_count
-                
-                if model == 'k2p':
-                    # K2P: d = -0.5 ln(1 - 2P - Q) - 0.25 ln(1 - 2Q)
-                    # P = Transitions / valid, Q = Transversions / valid
-                    # ベクトル化は複雑なので簡易ループでP, Q数える（速度改善の余地あり）
-                    pairs = np.stack((s1[valid_mask], s2[valid_mask]), axis=1)
-                    ts_count = 0
-                    tv_count = 0
-                    for row in pairs:
-                        if row[0] != row[1]:
-                            if is_transition(row[0], row[1]):
-                                ts_count += 1
-                            else:
-                                tv_count += 1
-                    
-                    P = ts_count / valid_count
-                    Q = tv_count / valid_count
-                    
-                    try:
-                        w1 = 1 - 2*P - Q
-                        w2 = 1 - 2*Q
-                        if w1 <= 0 or w2 <= 0:
-                            dist = 10.0 # 定義不能なほど遠い
-                        else:
-                            dist = -0.5 * math.log(w1) - 0.25 * math.log(w2)
-                    except:
-                         dist = 1.0
-                else:
-                    # p-distance
-                    dist = p_dist
-                
-            dist_matrix[i, j] = dist_matrix[j, i] = dist
-            
-    # UPGMA
+    # UPGMA for ASAP (scipy linkage)
     Z = linkage(squareform(dist_matrix), method='average')
     
     return ids, dist_matrix, Z, None
