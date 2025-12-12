@@ -32,12 +32,15 @@ class CustomDistanceCalculator(DistanceCalculator):
         # Calculate numpy matrix
         dist_mat_np = _calc_dist_matrix_numpy(seqs, self.model)
         
-        # Convert to list of lists (lower triangular)
         # BioPython DistanceMatrix expects: [ [], [d21], [d31, d32], ... ]
+        # Wait, debug script said it NEEDS diagonal?
+        # Case 2: [[0], [1,0], [2,3,0]] -> OK
+        # My Case 1: [[], [1], [2,3]] -> Failed
+        # So for row i, it should have i+1 elements.
         matrix_list = []
         for i in range(n):
             row = []
-            for j in range(i):
+            for j in range(i+1): # Include diagonal (i)
                 row.append(dist_mat_np[i, j])
             matrix_list.append(row)
             
