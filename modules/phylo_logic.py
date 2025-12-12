@@ -157,10 +157,13 @@ def run_phylo_bootstrap(msa, method="nj", model="identity", replicates=100):
         for clade in consensus_tree.find_clades():
             if clade.confidence is not None:
                 # Format: 100 for 100%, or 0.95 -> 95?
-                # BioPython get_support typically calculates percentage (0-100) if not specified otherwise,
-                # but let's check. Usually it's 0-100 float.
+                # BioPython get_support typically calculates percentage (0-100) if not specified otherwise.
                 # We rename the clade to the confidence value.
                 clade.name = str(int(clade.confidence)) if clade.confidence.is_integer() else str(clade.confidence)
+                # CRITICAL: Clear confidence to prevent duplication or "InnerX" + "100" concatenation issues in output.
+                clade.confidence = None
+                
+        return consensus_tree
                 
         return consensus_tree
     else:
