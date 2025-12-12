@@ -148,8 +148,8 @@ def run_phylo_bootstrap(msa, method="nj", model="identity", replicates=100):
     # 3. Bootstrap
     if replicates > 0:
         # boostrap_trees returns a generator. get_support needs a list or len_trees.
-        # Fix explicit arguments
-        boot_trees = list(bootstrap_trees(msa, replicates, distance_calculator=calculator, tree_constructor=constructor))
+        # Signature is (alignment, times, tree_constructor)
+        boot_trees = list(bootstrap_trees(msa, replicates, tree_constructor=constructor))
         consensus_tree = get_support(main_tree, boot_trees)
         return consensus_tree
     else:
