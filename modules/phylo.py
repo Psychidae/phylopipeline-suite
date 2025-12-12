@@ -139,6 +139,15 @@ def app_phylo():
             if 'phylo_initial_df' in st.session_state:
                 with st.expander("入力データ確認", expanded=True):
                     input_df = st.data_editor(st.session_state.phylo_initial_df, key="p_ed1", hide_index=True)
+                    
+                    # Download Sanitized FASTA
+                    if not input_df.empty:
+                        fasta_str = ""
+                        for _, row in input_df.iterrows():
+                            if row["Include"]:
+                                fasta_str += f">{row['ID']}\n{row['Sequence']}\n"
+                        
+                        st.download_button("📥 Download Sanitized FASTA", fasta_str, "sanitized.fasta", help="Download the sanitized FASTA file with spaces replaced by underscores.")
                 
                 if st.button("🚀 アラインメント開始 (MAFFT)", key="p_run", type="primary"):
                     sel = input_df[input_df["Include"]==True]
