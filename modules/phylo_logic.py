@@ -151,6 +151,17 @@ def run_phylo_bootstrap(msa, method="nj", model="identity", replicates=100):
         # Signature is (alignment, times, tree_constructor)
         boot_trees = list(bootstrap_trees(msa, replicates, tree_constructor=constructor))
         consensus_tree = get_support(main_tree, boot_trees)
+        
+        # Post-process: Map support (condidence) to node name for standard Newick viewers
+        # Many viewers (FigTree, TreeViewer) expect bootstrap values as the node label.
+        for clade in consensus_tree.find_clades():
+            if clade.confidence is not None:
+                # Format: 100 for 100%, or 0.95 -> 95?
+                # BioPython get_support typically calculates percentage (0-100) if not specified otherwise,
+                # but let's check. Usually it's 0-100 float.
+                # We rename the clade to the confidence value.
+                clade.name = str(int(clade.confidence)) if clade.confidence.is_integer() else str(clade.confidence)
+                
         return consensus_tree
     else:
         return main_tree
