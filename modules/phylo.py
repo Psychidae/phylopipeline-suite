@@ -215,53 +215,114 @@ def app_phylo():
                 st.divider()
                 c_iq, c_asap = st.columns(2)
                 
-                # IQ-TREE
+                # Phylogeny Analysis Section
                 with c_iq:
                     st.markdown("### 🌳 系統樹構築")
-                    if st.button("Run IQ-TREE", type="primary", use_container_width=True):
-                        sel = st.session_state.phylo_aligned_df[st.session_state.phylo_aligned_df["Include"]==True]
-                        with tempfile.TemporaryDirectory() as td:
-                            aln = os.path.join(td, "aln.fa")
-                            SeqIO.write([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()], aln, "fasta")
-                            
-                            cmd = [iqtree_bin, "-s", aln, "-bb", str(boot), "-pre", os.path.join(td,"out"), "-nt", "AUTO"]
-                            if model_str: cmd.extend(["-m", model_str])
-                            if outgroup_sel and outgroup_sel != "(None)":
-                                cmd.extend(["-o", outgroup_sel])
-                            
-                            with st.spinner("Running IQ-TREE..."):
-                                res = run_command(cmd)
-                                # Check return code
-                                if res.returncode != 0:
-                                    st.error("IQ-TREE execution failed.")
-                                    st.code(res.stdout + "\n" + res.stderr if res.stderr else "")
-                                    st.stop()
+                    
+                    # Method Selection
+                    phylo_method = st.selectbox("Analysis Method", 
+                                                ["Max Likelihood (IQ-TREE)", "NJ (Neighbor-Joining)", "UPGMA"],
+                                                index=0, key="p_method")
 
-                                if os.path.exists(os.path.join(td,"out.treefile")):
-                                    with open(os.path.join(td,"out.treefile")) as f: st.session_state.ptree = f.read()
-                                else:
-                                    st.error("IQ-TREE finished but no output file generated.")
-                                    st.code(res.stdout)
-                                    st.stop()
+                    # IQ-TREE specific settings
+                    if "IQ-TREE" in phylo_method:
+                         if st.button("Run IQ-TREE", type="primary", use_container_width=True):
+                            sel = st.session_state.phylo_aligned_df[st.session_state.phylo_aligned_df["Include"]==True]
+                            with tempfile.TemporaryDirectory() as td:
+                                aln = os.path.join(td, "aln.fa")
+                                SeqIO.write([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()], aln, "fasta")
+                                
+                                cmd = [iqtree_bin, "-s", aln, "-bb", str(boot), "-pre", os.path.join(td,"out"), "-nt", "AUTO"]
+                                if model_str: cmd.extend(["-m", model_str])
+                                if outgroup_sel and outgroup_sel != "(None)":
+                                    cmd.extend(["-o", outgroup_sel])
+                                
+                                with st.spinner("Running IQ-TREE..."):
+                                    res = run_command(cmd)
+                                    # Check return code
+                                    if res.returncode != 0:
+                                        st.error("IQ-TREE execution failed.")
+                                        st.code(res.stdout + "\n" + res.stderr if res.stderr else "")
+                                        st.stop()
 
-                                if os.path.exists(os.path.join(td,"out.iqtree")):
-                                    with open(os.path.join(td,"out.iqtree")) as f: st.session_state.preport = f.read()
-                                st.session_state.plog = res.stdout
-                                
-                                # Phase 2: Generate Log
-                                params = {
-                                    "Tool": "IQ-TREE",
-                                    "Bootstrap": boot,
-                                    "Model": model_str if model_str else "Auto",
-                                    "Outgroup": outgroup_sel,
-                                    "MAFFT Algo": mafft_algo,
-                                    "trimAl": "Yes" if use_trimal else "No"
-                                }
-                                tools = {"IQ-TREE": iqtree_bin, "MAFFT": mafft_bin} 
-                                st.session_state.method_log = generate_methods_log(tools, params)
-                                
-                                st.session_state.phylo_step = 3
-                                st.rerun()
+                                    if os.path.exists(os.path.join(td,"out.treefile")):
+                                        with open(os.path.join(td,"out.treefile")) as f: st.session_state.ptree = f.read()
+                                    else:
+                                        st.error("IQ-TREE finished but no output file generated.")
+                                        st.code(res.stdout)
+                                        st.stop()
+
+                                    if os.path.exists(os.path.join(td,"out.iqtree")):
+                                        with open(os.path.join(td,"out.iqtree")) as f: st.session_state.preport = f.read()
+                                    st.session_state.plog = res.stdout
+                                    
+                                    # Phase 2: Generate Log
+                                    params = {
+                                        "Tool": "IQ-TREE",
+                                        "Bootstrap": boot,
+                                        "Model": model_str if model_str else "Auto",
+                                        "Outgroup": outgroup_sel,
+                                        "MAFFT Algo": mafft_algo,
+                                        "trimAl": "Yes" if use_trimal else "No"
+                                    }
+                                    tools = {"IQ-TREE": iqtree_bin, "MAFFT": mafft_bin} 
+                                    st.session_state.method_log = generate_methods_log(tools, params)
+                                    st.session_state.phylo_method_used = "IQ-TREE"
+                                    
+                                    st.session_state.phylo_step = 3
+                                    st.rerun()
+
+                    # NJ / UPGMA Settings
+                    else:
+                        dist_model_bp = st.selectbox("Distance Model", ["identity", "kimura80", "jukes-cantor"], index=0, key="p_dist_bp")
+                        
+                        if st.button(f"Run {phylo_method}", type="primary", use_container_width=True):
+                             from Bio import Phylo
+                             from Bio.Phylo.TreeConstruction import DistanceCalculator, DistanceTreeConstructor
+                             
+                             sel = st.session_state.phylo_aligned_df[st.session_state.phylo_aligned_df["Include"]==True]
+                             
+                             # Convert to MultipleSeqAlignment object
+                             from Bio.Align import MultipleSeqAlignment
+                             msa = MultipleSeqAlignment([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()])
+                             
+                             with st.spinner(f"Running {phylo_method}..."):
+                                 try:
+                                     # Calculate Distance Matrix
+                                     calculator = DistanceCalculator(dist_model_bp)
+                                     dm = calculator.get_distance(msa)
+                                     
+                                     # Build Tree
+                                     constructor = DistanceTreeConstructor()
+                                     if "NJ" in phylo_method:
+                                         tree = constructor.nj(dm)
+                                     else:
+                                         tree = constructor.upgma(dm)
+                                     
+                                     # Output to string
+                                     with StringIO() as io:
+                                         Phylo.write(tree, io, "newick")
+                                         st.session_state.ptree = io.getvalue()
+                                     
+                                     # Clear IQ-TREE specific outputs
+                                     st.session_state.preport = f"{phylo_method} analysis completed.\nDistance Model: {dist_model_bp}"
+                                     st.session_state.plog = f"Method: {phylo_method}\nModel: {dist_model_bp}\nComputed via BioPython."
+                                     
+                                     # Log
+                                     params = {
+                                        "Tool": phylo_method,
+                                        "Model": dist_model_bp,
+                                        "MAFFT Algo": mafft_algo, 
+                                        "trimAl": "Yes" if use_trimal else "No"
+                                     }
+                                     tools = {"MAFFT": mafft_bin}
+                                     st.session_state.method_log = generate_methods_log(tools, params)
+                                     st.session_state.phylo_method_used = phylo_method
+
+                                     st.session_state.phylo_step = 3
+                                     st.rerun()
+                                 except Exception as e:
+                                     st.error(f"Error during {phylo_method}: {e}")
 
                 # ASAP
                 with c_asap:
@@ -294,21 +355,25 @@ def app_phylo():
         # === Step 3: 結果 ===
         elif st.session_state.phylo_step == 3:
             st.subheader("3. 解析結果")
-            t1, t2 = st.tabs(["IQ-TREE", "ASAP"])
+            t1, t2 = st.tabs(["Phylogeny", "Species Partitioning (ASAP)"])
             
             with t1:
                 if 'ptree' in st.session_state:
-                    st.success("Finished!")
+                    method_name = st.session_state.get("phylo_method_used", "Phylogeny")
+                    st.success(f"{method_name} Finished!")
+                    
                     c1, c2, c3 = st.columns(3)
                     c1.download_button("📥 Treefile", st.session_state.ptree, "phylo.treefile")
-                    c2.download_button("📄 Report", st.session_state.preport, "report.iqtree")
+                    
+                    report_fname = "report.iqtree" if "IQ-TREE" in method_name else "report.txt"
+                    c2.download_button("📄 Report", st.session_state.preport, report_fname)
                     
                     if 'method_log' in st.session_state:
                          c3.download_button("📝 Methods Log", st.session_state.method_log, "methods_log.txt")
                     
                     with st.expander("Log"): st.code(st.session_state.get('plog'))
                 else:
-                    st.info("IQ-TREE results not available.")
+                    st.info("Phylogenetic analysis results not available.")
 
             with t2:
                 if 'asap_scan' in st.session_state:
