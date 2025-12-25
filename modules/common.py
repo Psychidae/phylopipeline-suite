@@ -32,6 +32,16 @@ def find_tool_path(tool_name):
         if os.path.exists(candidate): return candidate
         if os.path.exists(candidate + ".exe"): return candidate + ".exe"
 
+
+
+    # 4. Check Common System Paths (Homebrew/Local)
+    extra_paths = ["/opt/homebrew/bin", "/usr/local/bin"]
+    for path_dir in extra_paths:
+        for name in target_names:
+            candidate = os.path.join(path_dir, name)
+            if os.path.exists(candidate): return candidate
+            if os.path.exists(candidate + ".exe"): return candidate + ".exe"
+
     return None
 
 def run_command(cmd, **kwargs):
