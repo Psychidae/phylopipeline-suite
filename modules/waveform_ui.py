@@ -29,6 +29,7 @@ def app_waveform_main():
     if "wf_zoom" not in st.session_state: st.session_state.wf_zoom = 300
     if "wf_last" not in st.session_state: st.session_state.wf_last = []
     if "wf_sel_tr" not in st.session_state: st.session_state.wf_sel_tr = []
+    if "wf_stop_opts" not in st.session_state: st.session_state.wf_stop_opts = {}
 
     up = st.file_uploader("AB1 Files", type=["ab1"], accept_multiple_files=True, key="wf_up")
 
@@ -159,10 +160,38 @@ def app_waveform_main():
                 for i,b in enumerate(['R','Y','K','M','S','W']): 
                     if c[i].button(b, key=f"p2{i}"): do_ed(b)
 
+            # --- Insert / Delete Buttons ---
+            ins_col, del_col = st.columns(2)
+            with ins_col:
+                if st.button("＋ 挿入", key="wf_ins", help="カーソル位置にN塩基を挿入"):
+                    st.session_state.all_contigs[sel]["consensus"].insert(tpos, {"base": "n"})
+                    st.rerun()
+            with del_col:
+                if st.button("✕ 削除", key="wf_del", help="カーソル位置の塩基を削除"):
+                    cdata = st.session_state.all_contigs[sel]["consensus"]
+                    if len(cdata) > 1:
+                        cdata.pop(tpos)
+                        if st.session_state.wf_pos >= len(cdata):
+                            st.session_state.wf_pos = len(cdata) - 1
+                        st.rerun()
+
+        # Recalculate after possible insert/delete
+        cons_data = st.session_state.all_contigs[sel]["consensus"]
+        rlen = len(cons_data)
+        tpos = max(0, min(rlen - 1, st.session_state.wf_pos))
+        vis_res = [r for r in results if r["name"] in st.session_state.wf_sel_tr]
+        mms = []
+        for i in range(rlen):
+            cb = cons_data[i]["base"].upper()
+            diff = False
+            for t in vis_res:
+                loc = i - t["offset"]
+                if 0 <= loc < len(t["display"]["sequence"]):
+                    b = t["display"]["sequence"][loc].upper()
+                    if b not in ['N','-'] and b != cb: diff = True; break
+            if diff: mms.append(i)
+
         fig = create_main_figure(vis_res, align_ref, cons_data, mms, tpos, st.session_state.wf_zoom, orf, trans, tid, qt)
-        
-        # Plotly Chart
-        pass # Spacer or comment to keep line numbers similar if needed, or just remove
         
         ev = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points", config={'scrollZoom':True, 'displayModeBar': True})
         
@@ -174,6 +203,66 @@ def app_waveform_main():
                 dst = [abs(p-cx) for p in rt["peak_locations"]]
                 nr = dst.index(min(dst))
                 if nr != st.session_state.wf_pos: st.session_state.wf_pos = nr; st.rerun()
+
+        # --- Inline Sequence Editor Block ---
+        with st.expander("📝 Sequence Editor", expanded=True):
+            # Window of bases to show
+            seq_win_half = 50
+            seq_start = max(0, tpos - seq_win_half)
+            seq_end = min(rlen, tpos + seq_win_half + 1)
+            
+            html_parts = []
+            html_parts.append('<div style="font-family: monospace; font-size: 13px; line-height: 1.6; word-break: break-all; background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 8px; overflow-x: auto;">')
+            
+            # Position ruler (every 10 bases)
+            ruler_parts = []
+            for idx in range(seq_start, seq_end):
+                if (idx + 1) % 10 == 0:
+                    num_str = str(idx + 1)
+                    ruler_parts.append(f'<span style="color:#888;font-size:10px;">{num_str}</span>')
+                else:
+                    ruler_parts.append('<span style="font-size:10px;">&nbsp;</span>')
+            html_parts.append('<div>' + ''.join(ruler_parts) + '</div>')
+            
+            # Base characters
+            base_colors = {'a': '#2ca02c', 't': '#d62728', 'c': '#1f77b4', 'g': '#cccccc',
+                           'A': '#2ca02c', 'T': '#d62728', 'C': '#1f77b4', 'G': '#cccccc',
+                           'N': '#666666', 'n': '#666666', '-': '#444444'}
+            
+            for idx in range(seq_start, seq_end):
+                base = cons_data[idx]["base"]
+                display_base = base.upper()
+                
+                # Determine styling
+                is_cursor = (idx == tpos)
+                is_mm = (idx in mms)
+                is_edited = base.islower()
+                
+                bg = 'transparent'
+                color = base_colors.get(base, '#d4d4d4')
+                border = 'none'
+                font_weight = 'normal'
+                
+                if is_cursor:
+                    bg = '#e67e22'
+                    color = '#ffffff'
+                    font_weight = 'bold'
+                elif is_mm:
+                    bg = 'rgba(231, 76, 60, 0.4)'
+                    color = '#ff6b6b'
+                    font_weight = 'bold'
+                elif is_edited:
+                    bg = 'rgba(200, 50, 200, 0.25)'
+                    color = '#e78bff'
+                
+                style = f'background:{bg};color:{color};font-weight:{font_weight};padding:1px 2px;border-radius:2px;cursor:pointer;'
+                html_parts.append(f'<span style="{style}" title="Pos {idx+1}: {display_base}">{display_base}</span>')
+            
+            html_parts.append('</div>')
+            
+            # Range info
+            st.caption(f"表示範囲: {seq_start+1}–{seq_end} / {rlen} bp　|　🟠 カーソル　🔴 ミスマッチ　🟣 編集済み")
+            st.html(''.join(html_parts))
 
         # --- Genetic Analysis & Stop Codon Report ---
         if trans:
@@ -216,17 +305,19 @@ def app_waveform_main():
                     else:
                         st.success(f"Frame +{frame}: Clean")
             
+            # Store in session_state so the callback can access it safely
+            st.session_state.wf_stop_opts = stop_codon_options
+            
             if found_issues:
                 st.info("💡 Select a Stop Codon below to inspect the waveform.")
                 
-                # Callback for jump
+                # Callback for jump — reads from session_state to avoid KeyError
                 def on_stop_select():
                     selected_label = st.session_state.wf_stop_sel
                     if selected_label:
-                        pos = stop_codon_options[selected_label]
-                        st.session_state.wf_pos = pos
-                        # We don't need explicit rerun here as on_change triggers it? 
-                        # Actually Streamlit flow sometimes needs it or just let it rerun.
+                        opts = st.session_state.get("wf_stop_opts", {})
+                        if selected_label in opts:
+                            st.session_state.wf_pos = opts[selected_label]
                 
                 # Dropdown
                 st.selectbox(
