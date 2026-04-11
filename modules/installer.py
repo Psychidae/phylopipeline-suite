@@ -5,88 +5,89 @@ import subprocess
 import shutil
 from modules.constants import TOOLS_DIR
 
+
+def _is_valid_binary(path):
+    """バイナリが実際に動作するかチェック"""
+    if not os.path.exists(path):
+        return False
+    try:
+        subprocess.run([path, "--version"], capture_output=True, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
 def install_tools_linux():
     """
-    Check if tools are installed and install them if missing (Linux only).
-    Returns (success, message)
+    Linux (Streamlit Cloud) 環境で IQ-TREE2 をダウンロード・インストールする。
+    macOS では shutil.which でシステムインストール済みのツールを探す。
+    戻り値: (success: bool, message: str)
     """
-    # Only run on Linux (Streamlit Cloud)
-    if platform.system() != "Linux":
-        return True, f"Skipping installation on {platform.system()}"
+    system = platform.system()
 
+    if system == "Darwin":
+        # macOS: システムまたは tools/ にあれば OK
+        for name in ["iqtree2", "iqtree"]:
+            if shutil.which(name):
+                return True, f"IQ-TREE found via PATH: {shutil.which(name)}"
+        local = os.path.join(TOOLS_DIR, "iqtree2")
+        if _is_valid_binary(local):
+            return True, f"IQ-TREE found in tools/: {local}"
+        return True, "macOS: IQ-TREE not found in PATH or tools/ — install manually or via Homebrew"
+
+    if system != "Linux":
+        return True, f"Skipping installer on {system}"
+
+    # --- Linux インストール ---
     iqtree_path = os.path.join(TOOLS_DIR, "iqtree2")
+    os.makedirs(TOOLS_DIR, exist_ok=True)
 
-    # Create tools directory if it doesn't exist
-    if not os.path.exists(TOOLS_DIR):
-        try:
-            os.makedirs(TOOLS_DIR, exist_ok=True)
-        except Exception as e:
-            return False, f"Failed to create tools dir: {e}"
-
-    # Function to check if binary is valid
-    def is_valid_binary(path):
-        if not os.path.exists(path):
-            return False
-        try:
-            # Try running version command
-            subprocess.run([path, "--version"], capture_output=True, check=True)
-            return True
-        except (OSError, subprocess.CalledProcessError):
-            return False
-
-    # Check for IQ-TREE 2
-    if is_valid_binary(iqtree_path):
+    if _is_valid_binary(iqtree_path):
         return True, "IQ-TREE 2 is ready."
 
-    print(f"Installing IQ-TREE 2 for Linux (Replacing invalid or missing binary)...")
-    
-    # Cleanup invalid binary if exists
+    print("Installing IQ-TREE 2 for Linux...")
+
+    # 古い無効バイナリを削除
     if os.path.exists(iqtree_path):
-            try: os.remove(iqtree_path)
-            except: pass
-    
+        try:
+            os.remove(iqtree_path)
+        except Exception:
+            pass
+
     try:
-        # Download URL for IQ-TREE 2.4.0 Linux (Intel 64-bit)
-        url = "https://github.com/iqtree/iqtree2/releases/download/v2.4.0/iqtree-2.4.0-Linux-intel.tar.gz"
+        # アーキテクチャに応じたバイナリを選択
+        machine = platform.machine()
+        if machine in ("aarch64", "arm64"):
+            url = "https://github.com/iqtree/iqtree2/releases/download/v2.4.0/iqtree-2.4.0-Linux-arm.tar.gz"
+        else:
+            url = "https://github.com/iqtree/iqtree2/releases/download/v2.4.0/iqtree-2.4.0-Linux-intel.tar.gz"
+
         tar_path = os.path.join(TOOLS_DIR, "iqtree.tar.gz")
-        
-        # Download
-        subprocess.run(["curl", "-L", "-o", tar_path, url], check=True)
-        
-        # Extract
+        subprocess.run(["curl", "-fsSL", "-o", tar_path, url], check=True, timeout=120)
         subprocess.run(["tar", "-xzf", tar_path, "-C", TOOLS_DIR], check=True)
-        
-        # Find the binary dynamically (folder name might vary)
+
+        # バイナリを探して移動
         found_bin = None
         for root, dirs, files in os.walk(TOOLS_DIR):
             if "iqtree2" in files:
                 found_bin = os.path.join(root, "iqtree2")
                 break
-        
-        if found_bin and os.path.exists(found_bin):
-            # Move to target location if it's not already there
-            if os.path.abspath(found_bin) != os.path.abspath(iqtree_path):
-                shutil.move(found_bin, iqtree_path)
-            
-            subprocess.run(["chmod", "+x", iqtree_path], check=True)
-            msg = f"IQ-TREE 2 installed to {iqtree_path}"
-        else:
-            # List files for debugging
-            files_list = []
-            for r, d, f in os.walk(TOOLS_DIR):
-                for file in f:
-                    files_list.append(os.path.join(r, file))
-            return False, f"Error: Binary not found. Extracted contents: {files_list[:5]}..."
-            
-        # Cleanup (Remove subdirectories created by tar)
+
+        if not found_bin:
+            return False, f"iqtree2 binary not found after extraction in {TOOLS_DIR}"
+
+        if os.path.abspath(found_bin) != os.path.abspath(iqtree_path):
+            shutil.move(found_bin, iqtree_path)
+
+        subprocess.run(["chmod", "+x", iqtree_path], check=True)
+
+        # tarball とサブディレクトリを削除
         if os.path.exists(tar_path):
             os.remove(tar_path)
-            
-        # Remove any other directories in TOOLS_DIR that are not the binary itself
-        # (This is a bit risky, so let's just leave them or be very specific. 
-        #  For now, just finding and moving the binary is enough stability.)
-        
-        return True, msg
 
+        return True, f"IQ-TREE 2 installed to {iqtree_path}"
+
+    except subprocess.TimeoutExpired:
+        return False, "IQ-TREE download timed out"
     except Exception as e:
         return False, f"Failed to install IQ-TREE 2: {e}"
