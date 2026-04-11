@@ -2,9 +2,11 @@ import streamlit as st
 import pandas as pd
 import os
 import tempfile
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
-from Bio import SeqIO
+from Bio import SeqIO, Phylo
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from io import StringIO
@@ -232,7 +234,7 @@ def app_phylo():
                                 aln = os.path.join(td, "aln.fa")
                                 SeqIO.write([SeqRecord(Seq(r["Sequence"]), id=r["ID"], description="") for i,r in sel.iterrows()], aln, "fasta")
                                 
-                                cmd = [iqtree_bin, "-s", aln, "-bb", str(boot), "-pre", os.path.join(td,"out"), "-nt", "AUTO"]
+                                cmd = [iqtree_bin, "-s", aln, "-bb", str(boot), "-pre", os.path.join(td,"out"), "-T", "AUTO"]
                                 if model_str: cmd.extend(["-m", model_str])
                                 if outgroup_sel and outgroup_sel != "(None)":
                                     cmd.extend(["-o", outgroup_sel])
@@ -370,23 +372,39 @@ def app_phylo():
             with t1:
                 if 'ptree' in st.session_state:
                     method_name = st.session_state.get("phylo_method_used", "Phylogeny")
-                    st.success(f"{method_name} Finished!")
-                    
+                    st.success(f"{method_name} 完了!")
+
+                    # --- ダウンロードボタン ---
                     c1, c2, c3 = st.columns(3)
-                    
-                    # Dynamic extension: .treefile for IQ-TREE, .nwk for others (NJ/UPGMA)
                     tree_ext = "treefile" if "IQ-TREE" in method_name else "nwk"
                     c1.download_button("📥 Treefile", st.session_state.ptree, f"phylo.{tree_ext}")
-                    
                     report_fname = "report.iqtree" if "IQ-TREE" in method_name else "report.txt"
-                    c2.download_button("📄 Report", st.session_state.preport, report_fname)
-                    
+                    c2.download_button("📄 Report", st.session_state.get('preport', ''), report_fname)
                     if 'method_log' in st.session_state:
-                         c3.download_button("📝 Methods Log", st.session_state.method_log, "methods_log.txt")
-                    
-                    with st.expander("Log"): st.code(st.session_state.get('plog'))
+                        c3.download_button("📝 Methods Log", st.session_state.method_log, "methods_log.txt")
+
+                    # --- 系統樹ビジュアル表示 ---
+                    st.markdown("#### 系統樹プレビュー")
+                    try:
+                        tree = Phylo.read(StringIO(st.session_state.ptree), "newick")
+                        terminals = tree.get_terminals()
+                        n_taxa = len(terminals)
+
+                        fig_h = max(4, n_taxa * 0.3)
+                        fig, ax = plt.subplots(figsize=(12, fig_h))
+                        Phylo.draw(tree, axes=ax, do_show=False)
+                        ax.set_title(f"{method_name}  ({n_taxa} taxa)", fontsize=12)
+                        plt.tight_layout()
+                        st.pyplot(fig)
+                        plt.close(fig)
+                    except Exception as e:
+                        st.warning(f"系統樹の描画に失敗しました: {e}")
+                        st.code(st.session_state.ptree[:2000])
+
+                    with st.expander("実行ログ"):
+                        st.code(st.session_state.get('plog', ''))
                 else:
-                    st.info("Phylogenetic analysis results not available.")
+                    st.info("系統解析の結果がありません。")
 
             with t2:
                 if 'asap_scan' in st.session_state:
